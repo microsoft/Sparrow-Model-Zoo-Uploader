@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -386,6 +387,16 @@ def _iou(a: list[float], b: list[float]) -> float:
     return inter / union if union > 0 else 0.0
 
 
+def norm_label(label: str) -> str:
+    """Label spelling that ignores case and `_`/`-`/space differences (`red_deer` == `Red deer`)."""
+    return " ".join(re.split(r"[\s_\-]+", str(label).strip().casefold()))
+
+
+def _norm_keys(probs: dict[str, float]) -> dict[str, float]:
+    out = {norm_label(k): v for k, v in probs.items()}
+    return out if len(out) == len(probs) else probs
+
+
 def compare_detections(
     ref: list[dict], got: list[dict], threshold: float, boundary: float
 ) -> dict[str, Any]:
@@ -396,7 +407,7 @@ def compare_detections(
             (_iou(r["bbox"], g["bbox"]), i, j)
             for i, r in enumerate(ref)
             for j, g in enumerate(got)
-            if r["label"] == g["label"]
+            if norm_label(r["label"]) == norm_label(g["label"])
         ),
         reverse=True,
     )
@@ -680,6 +691,7 @@ def compare_classification(
     prob_ceiling: float = CLASSIFIER_PROB_CEILING,
 ) -> tuple[dict[str, Any], list[str]]:
     """Compare one image's class probabilities. Errors are hard failures; the band needs a decision."""
+    ref, got = _norm_keys(ref), _norm_keys(got)
     labels = set(ref) | set(got)
     deltas = {lab: abs(ref.get(lab, 0.0) - got.get(lab, 0.0)) for lab in labels}
     rt = sorted(ref.items(), key=lambda kv: -kv[1])
