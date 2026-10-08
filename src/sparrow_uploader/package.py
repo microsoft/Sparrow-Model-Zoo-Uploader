@@ -14,7 +14,12 @@ from typing import Any
 
 from . import __version__
 from .capabilities import ENGINE_VERSION
-from .compliance import SOURCE_ARTIFACT, approval_fields, rights_fields, write_compliance
+from .compliance import (
+    SOURCE_ARTIFACT,
+    approval_fields,
+    rights_fields,
+    write_compliance,
+)
 from .doctor import find_spe, spe_version
 from .workspace import (
     MODEL_ID_RE,
@@ -82,7 +87,9 @@ def _redact(text: str, redactions: list[tuple[re.Pattern[str], str]]) -> str:
     return text
 
 
-def _member_bytes(src: Path, arc: str, redactions: list[tuple[re.Pattern[str], str]]) -> bytes:
+def _member_bytes(
+    src: Path, arc: str, redactions: list[tuple[re.Pattern[str], str]]
+) -> bytes:
     data = src.read_bytes()
     if not arc.endswith(TEXT_SUFFIXES):
         return data
@@ -97,9 +104,13 @@ def _check_gated_evidence(ws: Workspace) -> None:
         if ev is None:
             continue
         if ev.get("result") == "fail":
-            raise GateFailed(f"{stage} evidence result is fail; fix it and re-run lint before package")
+            raise GateFailed(
+                f"{stage} evidence result is fail; fix it and re-run lint before package"
+            )
         if ws.evidence_path(stage).stat().st_mtime_ns > lint_mtime:
-            raise GateFailed(f"{stage} evidence is newer than lint.json; re-run lint before package")
+            raise GateFailed(
+                f"{stage} evidence is newer than lint.json; re-run lint before package"
+            )
 
 
 def required_bundle_files(manifest: dict[str, Any]) -> tuple[str, ...]:
@@ -124,7 +135,9 @@ def draft_catalog_row(manifest: dict[str, Any], prov: dict[str, Any]) -> dict[st
     m = manifest.get("model", {})
     row = {
         "id": m.get("id"),
-        "display_name": m.get("display_name") or prov.get("display_name") or m.get("id"),
+        "display_name": m.get("display_name")
+        or prov.get("display_name")
+        or m.get("id"),
         "zip": f"{m.get('domain')}__{m.get('task')}__{m.get('id')}.zip",
         "domain": m.get("domain"),
         "task": m.get("task"),
@@ -174,7 +187,9 @@ def package(
     write_compliance(
         ws,
         prov,
-        parity_markdown(ws.read_evidence("parity_raw"), ws.read_evidence("parity_pipeline")),
+        parity_markdown(
+            ws.read_evidence("parity_raw"), ws.read_evidence("parity_pipeline")
+        ),
     )
     manifest = tomllib.loads(ws.manifest.read_text(encoding="utf-8"))
     m = manifest["model"]
@@ -201,7 +216,10 @@ def package(
     for src, arc in entries:
         if arc.endswith(TEXT_SUFFIXES):
             blob = _member_bytes(src, arc, redactions)
-            files[arc] = {"sha256": hashlib.sha256(blob).hexdigest(), "bytes": len(blob)}
+            files[arc] = {
+                "sha256": hashlib.sha256(blob).hexdigest(),
+                "bytes": len(blob),
+            }
             payloads.append((arc, src, blob))
         else:
             files[arc] = {"sha256": sha256_file(src), "bytes": src.stat().st_size}
@@ -216,7 +234,10 @@ def package(
         "submitter_hf_username": hf_username or prov.get("submitter"),
         "lint_result": lint_ev["result"],
         "catalog_row_draft": draft_catalog_row(manifest, prov),
-        "review_required": {**REVIEW_REQUIRED, "set_on_approval": approval_fields(prov)},
+        "review_required": {
+            **REVIEW_REQUIRED,
+            "set_on_approval": approval_fields(prov),
+        },
         "provenance": {k: v for k, v in prov.items() if k != "parity_data"}
         | {
             "parity_data": {
@@ -265,7 +286,9 @@ def _fail(*errors: str) -> dict[str, Any]:
 
 def _read_metadata(zf: zipfile.ZipFile, info: zipfile.ZipInfo) -> bytes:
     if info.file_size > MAX_METADATA:
-        raise ValueError(f"{info.filename} is {info.file_size} bytes (limit {MAX_METADATA})")
+        raise ValueError(
+            f"{info.filename} is {info.file_size} bytes (limit {MAX_METADATA})"
+        )
     with zf.open(info) as fh:
         return fh.read(MAX_METADATA + 1)
 
@@ -283,8 +306,16 @@ def verify(zpath: Path) -> dict[str, Any]:
     try:
         with zipfile.ZipFile(zpath) as zf:
             return _verify(zf)
-    except (zipfile.BadZipFile, zipfile.LargeZipFile, zlib.error, EOFError, OSError,
-            NotImplementedError, UnicodeDecodeError, ValueError) as exc:
+    except (
+        zipfile.BadZipFile,
+        zipfile.LargeZipFile,
+        zlib.error,
+        EOFError,
+        OSError,
+        NotImplementedError,
+        UnicodeDecodeError,
+        ValueError,
+    ) as exc:
         return _fail(f"zip is malformed: {type(exc).__name__}: {exc}")
 
 
@@ -296,10 +327,20 @@ def _verify(zf: zipfile.ZipFile) -> dict[str, Any]:
     if bad:
         return _fail(f"unsafe paths in zip: {bad[:5]}")
     # Unix file-type bits: only regular files (or no type, as zipfile.writestr leaves) are allowed.
-    special = [i.filename for i in infos if stat.S_IFMT(i.external_attr >> 16) not in (0, stat.S_IFREG)]
+    special = [
+        i.filename
+        for i in infos
+        if stat.S_IFMT(i.external_attr >> 16) not in (0, stat.S_IFREG)
+    ]
     if special or any(i.is_dir() for i in infos):
-        return _fail(f"zip members that are not regular files (symlinks, dirs, devices): {special[:5]}")
-    odd = [i.filename for i in infos if i.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED)]
+        return _fail(
+            f"zip members that are not regular files (symlinks, dirs, devices): {special[:5]}"
+        )
+    odd = [
+        i.filename
+        for i in infos
+        if i.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED)
+    ]
     if odd:
         return _fail(f"unsupported compression method (only stored/deflate): {odd[:5]}")
     if len(set(names)) != len(names):
@@ -324,11 +365,18 @@ def _verify(zf: zipfile.ZipFile) -> dict[str, Any]:
         return _fail("submission.json model_id is not a string")
     if not isinstance(row, dict):
         return _fail("submission.json catalog_row_draft is not an object")
-    if not (isinstance(listed, dict) and all(
-        isinstance(k, str) and isinstance(v, dict) and isinstance(v.get("sha256"), str)
-        for k, v in listed.items()
-    )):
-        return _fail('submission.json "files" must map member names to {"sha256": str, ...}')
+    if not (
+        isinstance(listed, dict)
+        and all(
+            isinstance(k, str)
+            and isinstance(v, dict)
+            and isinstance(v.get("sha256"), str)
+            for k, v in listed.items()
+        )
+    ):
+        return _fail(
+            'submission.json "files" must map member names to {"sha256": str, ...}'
+        )
     if not MODEL_ID_RE.match(mid):
         errors.append(f"invalid model_id {mid!r}")
     domain, task = row.get("domain"), row.get("task")
@@ -363,10 +411,14 @@ def _verify(zf: zipfile.ZipFile) -> dict[str, Any]:
     images = [
         n
         for n in names
-        if n.lower().endswith((".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp"))
+        if n.lower().endswith(
+            (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp")
+        )
     ]
     if images:
-        errors.append(f"zip contains images (parity inputs must not be uploaded): {images[:3]}")
+        errors.append(
+            f"zip contains images (parity inputs must not be uploaded): {images[:3]}"
+        )
     return {
         "result": "fail" if errors else "pass",
         "errors": errors,

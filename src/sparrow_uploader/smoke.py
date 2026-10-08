@@ -193,8 +193,12 @@ def smoke(
             dets = dets if isinstance(dets, list) else []
             item["detections"] = len(dets)
             item["top"] = max(
-                (d.get("confidence") for d in dets if isinstance(d, dict)
-                 and isinstance(d.get("confidence"), (int, float))),
+                (
+                    d.get("confidence")
+                    for d in dets
+                    if isinstance(d, dict)
+                    and isinstance(d.get("confidence"), (int, float))
+                ),
                 default=None,
             )
         elif task == "classifier":

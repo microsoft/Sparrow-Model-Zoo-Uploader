@@ -161,7 +161,9 @@ def _confident_rows(ref, cand, spec: str) -> dict[str, Any]:
         col_s, min_s = spec.split(":")
         col, min_score = int(col_s), float(min_s)
     except ValueError as exc:
-        raise UploaderError(f"--confident-rows wants COL:MIN, e.g. 4:0.05, got {spec!r}") from exc
+        raise UploaderError(
+            f"--confident-rows wants COL:MIN, e.g. 4:0.05, got {spec!r}"
+        ) from exc
     if ref.ndim < 3 or not -ref.shape[-1] <= col < ref.shape[-1]:
         raise UploaderError(
             f"--confident-rows {spec}: output shape {ref.shape} has no rows x channels layout "
@@ -178,7 +180,9 @@ def _confident_rows(ref, cand, spec: str) -> dict[str, Any]:
         ref_rows.append(a[:k])
         cand_rows.append(b[:k])
     ref_k, cand_k = np.concatenate(ref_rows), np.concatenate(cand_rows)
-    out = summarize(ref_k, cand_k) if len(ref_k) else summarize(np.zeros(1), np.zeros(1))
+    out = (
+        summarize(ref_k, cand_k) if len(ref_k) else summarize(np.zeros(1), np.zeros(1))
+    )
     out.update(
         {
             "score_column": col,
@@ -204,8 +208,13 @@ def emit_inputs(
     ws.write_evidence(
         "raw_inputs",
         "pass",
-        {"inputs": str(out), "sha256": sha256_file(out), "seed": seed,
-         "shape": list(batch.shape), "normalization": norm},
+        {
+            "inputs": str(out),
+            "sha256": sha256_file(out),
+            "seed": seed,
+            "shape": list(batch.shape),
+            "normalization": norm,
+        },
     )
     return {
         "result": "pass",
@@ -610,7 +619,9 @@ def parity_pipeline(
         per_file[name] = cmp
 
     if not per_file:
-        errors.append("no image was compared: the engine and the reference share no file")
+        errors.append(
+            "no image was compared: the engine and the reference share no file"
+        )
 
     summary: dict[str, Any] = {"files": len(per_file)}
     if task == "detector":
@@ -687,7 +698,12 @@ def parity_pipeline(
         "onnx_sha256": sha256_file(ws.onnx) if ws.onnx.is_file() else None,
     }
     ws.write_evidence(stage, result, data)
-    out = {"result": result, "evidence": stage, "summary": summary, "errors": errors[:20]}
+    out = {
+        "result": result,
+        "evidence": stage,
+        "summary": summary,
+        "errors": errors[:20],
+    }
     if band:
         out["decision_band_files"] = band
         out["decision"] = decision
@@ -695,7 +711,7 @@ def parity_pipeline(
         out["next"] = (
             f"max prob delta is above {prob_tol} but within {prob_ceiling}. Ask the submitter: "
             "investigate further (preprocessing, interpolation, opset) to reach "
-            f"{prob_tol}, or accept and re-run with --accept-delta \"<their reason>\""
+            f'{prob_tol}, or accept and re-run with --accept-delta "<their reason>"'
         )
     return out
 

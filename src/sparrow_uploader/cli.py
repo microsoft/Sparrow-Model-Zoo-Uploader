@@ -265,7 +265,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--rights-holder", default="", help="copyright holder (defaults to --developer)"
     )
     sp.add_argument(
-        "--source-revision", default="", help="commit, tag or release of the original weights"
+        "--source-revision",
+        default="",
+        help="commit, tag or release of the original weights",
     )
     sp.add_argument(
         "--source-weights",
@@ -275,7 +277,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="original weights file converted to ONNX; repeat for several files (sha256 recorded)",
     )
     sp.add_argument(
-        "--display-name", default="", help="readable catalog name, e.g. 'DeepForest Tree-Crown Detector'"
+        "--display-name",
+        default="",
+        help="readable catalog name, e.g. 'DeepForest Tree-Crown Detector'",
     )
     sp.add_argument(
         "--framework-licenses",
@@ -436,17 +440,25 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--zip", type=Path, help="default: the zip from the last `package`")
     sp.add_argument("--repo", default=SUBMISSION_REPO)
     sp.add_argument("--token", help="HF Write token (default: $HF_TOKEN)")
-    sp.add_argument("--pr", type=int, help="push a new revision to this existing PR number")
+    sp.add_argument(
+        "--pr", type=int, help="push a new revision to this existing PR number"
+    )
     sp.add_argument(
         "--confirm-public",
         action="store_true",
         help="the submitter agrees the PR and files are public as soon as they are uploaded",
     )
-    sp.add_argument("--dry-run", action="store_true", help="show what would be uploaded")
+    sp.add_argument(
+        "--dry-run", action="store_true", help="show what would be uploaded"
+    )
 
-    sp = stage("status", cmd_status, "show the review state and comments of the submission PR")
+    sp = stage(
+        "status", cmd_status, "show the review state and comments of the submission PR"
+    )
     sp.add_argument("--repo", help="default: the repo recorded by `submit`")
-    sp.add_argument("--token", help="HF token (default: $HF_TOKEN; public repos need none)")
+    sp.add_argument(
+        "--token", help="HF token (default: $HF_TOKEN; public repos need none)"
+    )
     sp.add_argument("--pr", type=int, help="default: the PR recorded by `submit`")
 
     sp = sub.add_parser(

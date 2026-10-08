@@ -95,7 +95,9 @@ def submit(
     zpath = _zip_for(ws, zip_path)
     check = verify(zpath)
     if check["result"] != "pass":
-        raise UploaderError(f"zip does not verify; re-run `package`: {check['errors'][:3]}")
+        raise UploaderError(
+            f"zip does not verify; re-run `package`: {check['errors'][:3]}"
+        )
     with zipfile.ZipFile(zpath) as zf:
         sub = json.loads(zf.read("submission.json"))
     if sub.get("model_id") != ws.model_id:
@@ -103,7 +105,10 @@ def submit(
             f"zip is for model {sub.get('model_id')!r}, not {ws.model_id!r}"
         )
     zip_sha = sha256_file(zpath)
-    stamp = "".join(c for c in str(sub.get("created_at", "")) if c.isalnum()) or zip_sha[:12]
+    stamp = (
+        "".join(c for c in str(sub.get("created_at", "")) if c.isalnum())
+        or zip_sha[:12]
+    )
     path_in_repo = f"submissions/{ws.model_id}/{stamp}"
     title = f"Submission: {ws.model_id}"
     plan = {
@@ -136,7 +141,9 @@ def submit(
         (folder / "submission.json").write_text(
             json.dumps(sub, indent=2) + "\n", encoding="utf-8"
         )
-        (folder / "README.md").write_text(_readme(sub, zpath.name, zip_sha), encoding="utf-8")
+        (folder / "README.md").write_text(
+            _readme(sub, zpath.name, zip_sha), encoding="utf-8"
+        )
         kwargs: dict[str, Any] = {
             "repo_id": repo,
             "folder_path": str(folder),
@@ -151,19 +158,32 @@ def submit(
             kwargs["create_pr"] = True
         try:
             info = api.upload_folder(**kwargs)
-        except Exception as exc:  # huggingface_hub raises HTTP and network errors of many types
-            raise UploaderError(f"upload to {repo} failed: {type(exc).__name__}: {exc}") from exc
+        except (
+            Exception
+        ) as exc:  # huggingface_hub raises HTTP and network errors of many types
+            raise UploaderError(
+                f"upload to {repo} failed: {type(exc).__name__}: {exc}"
+            ) from exc
     pr_num = pr if pr is not None else getattr(info, "pr_num", None)
     pr_url = getattr(info, "pr_url", None) or (
         f"https://huggingface.co/{repo}/discussions/{pr_num}" if pr_num else None
     )
-    data = {**plan, "pr_num": pr_num, "pr_url": pr_url, "commit_url": getattr(info, "commit_url", None)}
+    data = {
+        **plan,
+        "pr_num": pr_num,
+        "pr_url": pr_url,
+        "commit_url": getattr(info, "commit_url", None),
+    }
     ws.write_evidence("submit", "pass", data)
     return {"result": "pass", **data}
 
 
 def status(
-    ws: Workspace, *, repo: str | None = None, token: str | None = None, pr: int | None = None
+    ws: Workspace,
+    *,
+    repo: str | None = None,
+    token: str | None = None,
+    pr: int | None = None,
 ) -> dict[str, Any]:
     ev = ws.read_evidence("submit") or {}
     pr_num = pr if pr is not None else ev.get("pr_num")
@@ -176,7 +196,9 @@ def status(
             repo_id=repo, discussion_num=int(pr_num), repo_type="model"
         )
     except Exception as exc:  # HTTP and network errors
-        raise UploaderError(f"cannot read PR {pr_num} on {repo}: {type(exc).__name__}: {exc}") from exc
+        raise UploaderError(
+            f"cannot read PR {pr_num} on {repo}: {type(exc).__name__}: {exc}"
+        ) from exc
     comments = [
         {
             "author": getattr(e, "author", None),

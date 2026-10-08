@@ -63,7 +63,9 @@ COMMERCIAL_OK = {
     "LGPL-3.0-only",
     "LGPL-3.0-or-later",
 }
-_NC_RE = re.compile(r"\bNC\b|non[-_ ]?commercial|research[-_ ]only|academic[-_ ]only", re.I)
+_NC_RE = re.compile(
+    r"\bNC\b|non[-_ ]?commercial|research[-_ ]only|academic[-_ ]only", re.I
+)
 _ND_RE = re.compile(r"\bND\b|no[-_ ]?deriv", re.I)
 ULTRALYTICS_LICENSE = "AGPL-3.0"
 

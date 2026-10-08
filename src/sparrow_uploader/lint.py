@@ -81,7 +81,10 @@ def parity_markdown(raw: dict | None, pipe: dict | None) -> str:
     lines = []
     if raw:
         t = raw["thresholds"]
-        g = raw["measurements"].get(t["applied_to"]) or raw["measurements"]["all_channels"]
+        g = (
+            raw["measurements"].get(t["applied_to"])
+            or raw["measurements"]["all_channels"]
+        )
         a = raw["measurements"]["all_channels"]
         lines += [
             f"**Raw tensor parity** ({raw['result'].upper()}): `{raw['source']}` vs `{raw['target']}`, "
@@ -164,7 +167,9 @@ def evidence_issue(stage: str, ev: dict | None) -> tuple[str | None, str]:
 MODEL_EVIDENCE = ("smoke", "parity_raw", "parity_pipeline")
 
 
-def staleness_issues(ws: Workspace, manifest: dict[str, Any]) -> tuple[list[str], list[str]]:
+def staleness_issues(
+    ws: Workspace, manifest: dict[str, Any]
+) -> tuple[list[str], list[str]]:
     """Errors when the manifest or gate evidence describes a different model.onnx than the
     current one; warnings when gate evidence predates manifest.toml (e.g. `scaffold --force`)."""
     errors: list[str] = []
@@ -201,7 +206,9 @@ def staleness_issues(ws: Workspace, manifest: dict[str, Any]) -> tuple[list[str]
     return errors, warnings
 
 
-def manifest_provenance_issues(manifest: dict[str, Any], prov: dict[str, Any]) -> list[str]:
+def manifest_provenance_issues(
+    manifest: dict[str, Any], prov: dict[str, Any]
+) -> list[str]:
     """Rights/identity fields scaffold copied from PROVENANCE.json that no longer agree with it,
     e.g. after `init` was re-run with a corrected licence."""
     m = manifest.get("model", {})

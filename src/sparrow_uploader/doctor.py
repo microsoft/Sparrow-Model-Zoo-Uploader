@@ -88,7 +88,10 @@ def doctor(ws: Workspace | None) -> dict[str, Any]:
 
     for mod, hint in (
         ("torch", "needed only for PyTorch conversion / raw parity against a .pt"),
-        ("huggingface_hub", "optional; only if you upload the submission to Hugging Face yourself"),
+        (
+            "huggingface_hub",
+            "optional; only if you upload the submission to Hugging Face yourself",
+        ),
     ):
         v = _version(mod)
         add(

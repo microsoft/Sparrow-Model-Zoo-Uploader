@@ -25,7 +25,10 @@ def check_license(spdx: str) -> tuple[bool, str]:
     describes the output bundle. Returns (stated, note) where note gives the commercial status."""
     s = spdx.strip()
     if not s:
-        return False, "--license is required: the SPDX id (or name) of the weights licence"
+        return (
+            False,
+            "--license is required: the SPDX id (or name) of the weights licence",
+        )
     status = commercial_use_status(s)
     note = {
         "allowed": "commercial use allowed",

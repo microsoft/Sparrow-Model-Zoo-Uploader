@@ -44,7 +44,9 @@ def read_input_text(path: Path, what: str) -> str:
     if not stat.S_ISREG(st.st_mode):
         raise UploaderError(f"{what} {path} is not a regular file")
     if st.st_size > MAX_INPUT_TEXT:
-        raise UploaderError(f"{what} {path} is {st.st_size} bytes (limit {MAX_INPUT_TEXT})")
+        raise UploaderError(
+            f"{what} {path} is {st.st_size} bytes (limit {MAX_INPUT_TEXT})"
+        )
     try:
         fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
     except OSError as exc:
@@ -88,9 +90,9 @@ def read_labels(path: Path) -> list[str]:
     return lines
 
 
-
 def _classes(n: int) -> str:
     return f"{n} class" if n == 1 else f"{n} classes"
+
 
 def render_manifest(
     *,
@@ -268,7 +270,9 @@ def scaffold(
     task = prov["task"]
     errors: list[str] = []
     warnings: list[str] = []
-    licence_text = read_input_text(Path(license_file), "--license-file") if license_file else None
+    licence_text = (
+        read_input_text(Path(license_file), "--license-file") if license_file else None
+    )
 
     names: list[str] = []
     if task in ("detector", "classifier"):
@@ -363,7 +367,9 @@ def scaffold(
                 f"{onnx_sha}; update it (or pass --reset-card to regenerate from the template)"
             )
         else:
-            warnings.append("kept your existing MODEL_CARD.md (pass --reset-card to regenerate)")
+            warnings.append(
+                "kept your existing MODEL_CARD.md (pass --reset-card to regenerate)"
+            )
     out_desc = {
         "detector": f"{chosen['postprocess']} boxes, {_classes(len(names))}",
         "classifier": f"{chosen['postprocess']} over {_classes(len(names))}",
