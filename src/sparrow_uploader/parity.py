@@ -121,6 +121,48 @@ def summarize(ref, cand) -> dict[str, Any]:
     }
 
 
+def _confident_rows(ref, cand, spec: str) -> dict[str, Any]:
+    """Compare the confident rows of a top-k / NMS-free output ([..., rows, channels]).
+
+    Rows with near-equal scores can come out in a different order from two runtimes, which makes
+    an element-wise comparison of all rows fail although the detections agree. Each side is
+    sorted by its score column, and the reference's rows with score >= MIN are compared on every
+    channel against the same number of top rows of the converted output."""
+    import numpy as np
+
+    try:
+        col_s, min_s = spec.split(":")
+        col, min_score = int(col_s), float(min_s)
+    except ValueError as exc:
+        raise UploaderError(f"--confident-rows wants COL:MIN, e.g. 4:0.05, got {spec!r}") from exc
+    if ref.ndim < 3 or not -ref.shape[-1] <= col < ref.shape[-1]:
+        raise UploaderError(
+            f"--confident-rows {spec}: output shape {ref.shape} has no rows x channels layout "
+            f"with score column {col}"
+        )
+    r = ref.reshape(-1, *ref.shape[-2:])
+    c = cand.reshape(-1, *cand.shape[-2:])
+    ref_rows, cand_rows, counts = [], [], []
+    for a, b in zip(r, c):
+        a = a[np.argsort(-a[:, col], kind="stable")]
+        b = b[np.argsort(-b[:, col], kind="stable")]
+        k = int((a[:, col] >= min_score).sum())
+        counts.append([k, int((b[:, col] >= min_score).sum())])
+        ref_rows.append(a[:k])
+        cand_rows.append(b[:k])
+    ref_k, cand_k = np.concatenate(ref_rows), np.concatenate(cand_rows)
+    out = summarize(ref_k, cand_k) if len(ref_k) else summarize(np.zeros(1), np.zeros(1))
+    out.update(
+        {
+            "score_column": col,
+            "min_score": min_score,
+            "rows_compared": int(len(ref_k)),
+            "count_mismatches": sum(1 for k, kc in counts if k != kc),
+        }
+    )
+    return out
+
+
 def emit_inputs(
     ws: Workspace, out: Path, samples: int = 16, seed: int = DEFAULT_SEED
 ) -> dict[str, Any]:
@@ -161,6 +203,7 @@ def parity_raw(
     seed: int = DEFAULT_SEED,
     score_channels: str | None = None,
     score_axis: int = -1,
+    confident_rows: str | None = None,
     max_abs_delta: float = DEFAULT_MAX_ABS,
     min_cosine: float = DEFAULT_MIN_COSINE,
 ) -> dict[str, Any]:
@@ -232,6 +275,20 @@ def parity_raw(
         )
     groups = {"all_channels": summarize(ref, cand)}
     errors: list[str] = []
+    if score_channels and confident_rows:
+        raise UploaderError("give --score-channels or --confident-rows, not both")
+    if confident_rows:
+        g = groups["confident_rows"] = _confident_rows(ref, cand, confident_rows)
+        if g["rows_compared"] == 0:
+            errors.append(
+                f"no reference row scores >= {g['min_score']}: nothing was compared; use real "
+                "preprocessed images (--input-npy) or a lower MIN"
+            )
+        if g["count_mismatches"]:
+            errors.append(
+                f"{g['count_mismatches']} sample(s) have a different number of rows scoring "
+                f">= {g['min_score']} in the converted model"
+            )
     if score_channels:
         start, end = (int(v) for v in score_channels.split(":"))
         if not -ref.ndim < score_axis < ref.ndim or score_axis == 0:
@@ -249,7 +306,10 @@ def parity_raw(
             np.take(ref, idx, axis=score_axis), np.take(cand, idx, axis=score_axis)
         )
         groups["score_channels"]["axis"] = score_axis
-    target = groups.get("score_channels", groups["all_channels"])
+    applied_to = next(
+        (k for k in ("confident_rows", "score_channels") if k in groups), "all_channels"
+    )
+    target = groups[applied_to]
     if target["reference_peak_magnitude"] == 0.0:
         # e.g. an NMS-in-graph detector on noise returns no boxes: both sides are all zeros,
         # so a broken conversion would "pass" too.
@@ -270,11 +330,12 @@ def parity_raw(
         "seed": npy_seed if input_npy else seed,
         "input_source": input_source,
         "input_sha256": npy_sha,
-        "output_shape": list(ref.shape[1:]),
+        "model_output_shape": list(ref.shape[1:]),
+        "compared_shape": list(ref.shape),
         "thresholds": {
             "max_abs_delta": max_abs_delta,
             "min_cosine_similarity": min_cosine,
-            "applied_to": "score_channels" if score_channels else "all_channels",
+            "applied_to": applied_to,
         },
         "errors": errors,
         "measurements": groups,

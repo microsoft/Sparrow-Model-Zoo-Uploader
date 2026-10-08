@@ -206,7 +206,11 @@ sparrow-uploader parity raw --model-id ID --input-npy inputs.npy --reference-out
 ```
 
 Use `--score-channels START:END` when only part of an axis holds scores, and `--score-axis` to
-say which axis (default last; YOLOv8 raw heads `[B, 4+C, N]` need `--score-axis 1`). A run whose
+say which axis (default last; YOLOv8 raw heads `[B, 4+C, N]` need `--score-axis 1`). For
+top-k / NMS-free detector outputs (`[B, 300, 6]`) use `--confident-rows 4:0.05` so tied
+low-score rows in a different order do not fail the gate; keep the boxes in the comparison.
+Each re-run keeps the earlier result in the evidence history, which ships with the package:
+explain in the card why a final run differs from a failed one. A run whose
 reference output is all zeros fails: use real preprocessed images (`--input-npy`) for models
 that return nothing on noise, such as detectors with NMS in the graph. Failure means a conversion bug: wrong opset, FP16, wrong output picked, missing
 `model.eval()`. Go back to S4. Never compare the ONNX file with itself and call it parity.

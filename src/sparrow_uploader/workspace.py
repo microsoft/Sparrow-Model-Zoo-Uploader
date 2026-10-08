@@ -27,6 +27,8 @@ from . import __version__
 
 MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$")
 EVIDENCE_SCHEMA = "1.0"
+# Re-running these gates keeps the earlier records, so a failing run cannot silently disappear.
+HISTORY_STAGES = ("parity_raw", "parity_pipeline")
 
 
 class UploaderError(Exception):
@@ -112,6 +114,17 @@ class Workspace:
             **data,
         }
         path = self.evidence_path(stage)
+        if stage in HISTORY_STAGES and path.is_file():
+            hist_path = self.evidence_path(f"{stage}_history")
+            hist = (
+                json.loads(hist_path.read_text(encoding="utf-8"))
+                if hist_path.is_file()
+                else []
+            )
+            hist.append(json.loads(path.read_text(encoding="utf-8")))
+            hist_path.write_text(
+                json.dumps(hist, indent=2, default=str) + "\n", encoding="utf-8"
+            )
         path.write_text(
             json.dumps(record, indent=2, default=str) + "\n", encoding="utf-8"
         )

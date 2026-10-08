@@ -63,6 +63,11 @@ YOLO("best.pt").export(format="onnx", opset=18, imgsz=640, dynamic=True, simplif
 ```
 
 - YOLOv10 exports end-to-end output `[B, 300, 6]` (NMS-free) → postprocessing `yolo_e2e`.
+  Ultralytics 8.4.x exports YOLOv10 weights as a raw head instead; pin `ultralytics==8.3.0`
+  for the `[B, 300, 6]` export. That version also needs `onnxscript` installed.
+- Ultralytics `predict` treats a numpy array as BGR (a file path or PIL image as RGB). When you
+  write the upstream reference script for pipeline parity, pass file paths, not arrays, or the
+  reference uses swapped channels.
 - YOLOv8/11 export raw heads `[B, 4+C, N]`. The engine has no postprocessing for this layout.
   Either export with NMS in the graph (`nms=True` on recent Ultralytics versions, producing
   `[B, N, 6]` → `yolo_e2e`), or treat it as an engine gap.
@@ -90,6 +95,11 @@ Raw parity:
   `parity raw --model-id ID --input-npy inputs.npy --source-onnx upstream_nms.onnx`.
   Box coordinates are in input pixels (hundreds), so a 1e-3 absolute gate is tight: report the
   measured delta and `max_abs_delta_relative`; pipeline parity (S10) is the deciding gate here.
+- Top-k / NMS-free outputs (`[B, 300, 6]`, `[B, N, 6]`): rows with near-equal scores (often the
+  zero-score padding rows) come out in a different order from two runtimes, and an all-channel
+  comparison then fails with deltas of hundreds of pixels although the detections agree. Add
+  `--confident-rows 4:0.05`: each side is sorted by the score column and every channel of the
+  rows scoring ≥ 0.05 is compared. Do not use `--score-channels 4:5` for this; it drops the boxes.
 
 ## YOLOv5 (original repository)
 
@@ -119,6 +129,12 @@ an engine-gap / help case.
 - timm: build the model with `timm.create_model(name, pretrained=True)` and use the PyTorch recipe.
   `timm.data.resolve_data_config({}, model=model)` tells you input size, interpolation, mean/std
   and crop: use these for the `scaffold` flags.
+- timm ViT with `dynamic_img_size=True` interpolates the position embedding with antialiased
+  bicubic, which does not export. Create the model at the fixed input size (or resample
+  `pos_embed` once in PyTorch and load it) so the exported graph has a constant embedding.
+- For timm and other PyTorch models, prefer `parity raw --emit-inputs inputs.npy`, run the
+  original model on those inputs in its own environment, then `--reference-outputs ref.npy`.
+  Tracing to TorchScript only for parity is not needed.
 - open_clip: export `model.visual` (plus projection) with the PyTorch recipe; the engine
   L2-normalises the embedding (`normalize = true`).
 

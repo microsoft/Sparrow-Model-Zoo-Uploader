@@ -12,7 +12,11 @@ conversion.
 | cosine similarity | ≥ 0.999999 |
 
 Gated on all output channels, or on `--score-channels START:END` of `--score-axis` (default the
-last axis) if given (reported separately). A reference that is all zeros fails: the comparison
+last axis) if given (reported separately). For top-k / NMS-free detector outputs, gate with
+`--confident-rows COL:MIN` (e.g. `4:0.05`): each side is sorted by score column COL and all
+channels of the rows scoring ≥ MIN are compared; the run fails if the number of such rows differs
+or is zero. Re-running raw or pipeline parity keeps the earlier records in
+`evidence/<stage>_history.json`, which is packaged; `lint` warns about earlier runs that failed. A reference that is all zeros fails: the comparison
 would pass for any broken conversion. The reference must be the **original** model (PyTorch, TorchScript,
 Ultralytics, TensorFlow outputs, or the upstream ONNX when the converted file was edited).
 Comparing the bundle ONNX with itself is rejected.

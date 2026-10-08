@@ -35,6 +35,8 @@ EVIDENCE_FILES = (
     "smoke",
     "parity_raw",
     "parity_pipeline",
+    "parity_raw_history",
+    "parity_pipeline_history",
     "lint",
 )
 MAX_UNCOMPRESSED = 8 * 1024**3

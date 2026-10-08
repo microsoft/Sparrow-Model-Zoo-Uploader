@@ -73,11 +73,9 @@ def _fmt(v: Any) -> str:
 def parity_markdown(raw: dict | None, pipe: dict | None) -> str:
     lines = []
     if raw:
-        g = (
-            raw["measurements"].get("score_channels")
-            or raw["measurements"]["all_channels"]
-        )
         t = raw["thresholds"]
+        g = raw["measurements"].get(t["applied_to"]) or raw["measurements"]["all_channels"]
+        a = raw["measurements"]["all_channels"]
         lines += [
             f"**Raw tensor parity** ({raw['result'].upper()}): `{raw['source']}` vs `{raw['target']}`, "
             f"{raw['samples']} {raw['input_source']} inputs of shape {raw['input_shape']}, "
@@ -87,8 +85,13 @@ def parity_markdown(raw: dict | None, pipe: dict | None) -> str:
             "|---|---|---|",
             f"| max abs delta | {_fmt(g['max_abs_delta'])} | ≤ {_fmt(t['max_abs_delta'])} |",
             f"| cosine similarity | {g['cosine_similarity']:.7f} | ≥ {t['min_cosine_similarity']} |",
-            "",
         ]
+        if t["applied_to"] != "all_channels":
+            lines.append(
+                f"| all channels (not gated) | max abs delta {_fmt(a['max_abs_delta'])}, "
+                f"cosine {a['cosine_similarity']:.7f} | — |"
+            )
+        lines.append("")
     else:
         lines += ["**Raw tensor parity**: not run.", ""]
     if pipe and pipe.get("result") != "skipped":
@@ -246,6 +249,15 @@ def lint(
             errors.append(msg)
         elif level == "warning":
             warnings.append(msg)
+    for stage in ("parity_raw", "parity_pipeline"):
+        hist = ws.read_evidence(f"{stage}_history") or []
+        failed = sum(1 for h in hist if h.get("result") in ("fail", "needs_decision"))
+        if failed:
+            warnings.append(
+                f"{failed} earlier {stage.replace('_', ' ')} run(s) did not pass "
+                f"(evidence/{stage}_history.json ships with the package); say in the model card "
+                "why the final run differs"
+            )
     if (
         ws.onnx.stat().st_mtime > (ws.evidence_path("validate").stat().st_mtime + 1)
         if ws.evidence_path("validate").is_file()

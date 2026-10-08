@@ -122,6 +122,7 @@ def cmd_parity_raw(a):
         seed=a.seed,
         score_channels=a.score_channels,
         score_axis=a.score_axis,
+        confident_rows=a.confident_rows,
         max_abs_delta=a.max_abs_delta,
         min_cosine=a.min_cosine,
     )
@@ -378,6 +379,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=-1,
         help="output axis --score-channels slices (YOLOv8 raw head [B, 4+C, N]: use 1)",
+    )
+    raw.add_argument(
+        "--confident-rows",
+        metavar="COL:MIN",
+        help="top-k / NMS-free detector outputs [.., rows, channels]: sort each side by score "
+        "column COL and compare every channel of the rows scoring >= MIN (e.g. 4:0.05)",
     )
     raw.add_argument("--max-abs-delta", type=float, default=1e-3)
     raw.add_argument("--min-cosine", type=float, default=0.999999)
