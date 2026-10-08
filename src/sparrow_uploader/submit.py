@@ -189,7 +189,7 @@ def status(
     state = getattr(d, "status", None)
     meaning = {
         "open": "waiting for review, or changes were requested in the comments",
-        "closed": "reviewed and closed: read the last comment for the decision (and the zoo DOI)",
+        "closed": "reviewed and closed: read the last comment for the decision",
         "merged": "merged (unexpected: submissions are never merged)",
         "draft": "draft pull request",
     }.get(state, "unknown")
