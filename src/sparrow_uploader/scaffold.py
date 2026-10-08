@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 from importlib import resources
 from pathlib import Path
 from typing import Any
 
 from . import __version__
 from . import capabilities as caps
+from .compliance import commercial_use_status
 from .workspace import UploaderError, Workspace, sha256_file
 
 
@@ -22,9 +25,47 @@ def _toml_list(values: list[Any]) -> str:
     )
 
 
+MAX_INPUT_TEXT = 1024**2
+
+
+def read_input_text(path: Path, what: str) -> str:
+    """Read a small user-supplied text file, refusing symlinks and non-regular files.
+
+    Licence and labels files often come from a cloned upstream repo; a symlink there could
+    copy a local secret (e.g. ~/.env or /proc/self/environ) into the shipped bundle.
+    """
+    path = Path(path)
+    try:
+        st = os.lstat(path)
+    except OSError as exc:
+        raise UploaderError(f"cannot read {what} {path}: {exc.strerror}") from exc
+    if stat.S_ISLNK(st.st_mode):
+        raise UploaderError(f"{what} {path} is a symlink; pass the real file instead")
+    if not stat.S_ISREG(st.st_mode):
+        raise UploaderError(f"{what} {path} is not a regular file")
+    if st.st_size > MAX_INPUT_TEXT:
+        raise UploaderError(
+            f"{what} {path} is {st.st_size} bytes (limit {MAX_INPUT_TEXT})"
+        )
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except OSError as exc:
+        raise UploaderError(f"cannot read {what} {path}: {exc.strerror}") from exc
+    with os.fdopen(fd, "rb") as fh:
+        if not stat.S_ISREG(os.fstat(fh.fileno()).st_mode):
+            raise UploaderError(f"{what} {path} is not a regular file")
+        data = fh.read(MAX_INPUT_TEXT + 1)
+    if len(data) > MAX_INPUT_TEXT:
+        raise UploaderError(f"{what} {path} is larger than {MAX_INPUT_TEXT} bytes")
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise UploaderError(f"{what} {path} is not UTF-8 text: {exc}") from exc
+
+
 def read_labels(path: Path) -> list[str]:
     """Accept `name` per line, or `name,index` / `index,name` CSV. Returns names in index order."""
-    lines = [ln.strip() for ln in path.read_text(encoding="utf-8").splitlines()]
+    lines = [ln.strip() for ln in read_input_text(path, "labels file").splitlines()]
     lines = [ln for ln in lines if ln and not ln.startswith("#")]
     if not lines:
         raise UploaderError(f"labels file {path} is empty")
@@ -49,9 +90,9 @@ def read_labels(path: Path) -> list[str]:
     return lines
 
 
-
 def _classes(n: int) -> str:
     return f"{n} class" if n == 1 else f"{n} classes"
+
 
 def render_manifest(
     *,
@@ -126,8 +167,7 @@ def render_manifest(
         f"family = {_toml_list(family)}",
         'status = "candidate"',
         f"license = {_q(prov['license'])}",
-        # intake admits only licences that allow commercial use
-        "commercial_use = true",
+        f"commercial_use = {'true' if commercial_use_status(prov['license']) == 'allowed' else 'false'}",
         f"geo_scope = {_q(geo_scope)}",
         f"geo_regions = {_toml_list(geo_regions)}",
         f"reference = {_q(prov['reference'])}",
@@ -230,6 +270,9 @@ def scaffold(
     task = prov["task"]
     errors: list[str] = []
     warnings: list[str] = []
+    licence_text = (
+        read_input_text(Path(license_file), "--license-file") if license_file else None
+    )
 
     names: list[str] = []
     if task in ("detector", "classifier"):
@@ -299,11 +342,10 @@ def scaffold(
         )
 
     lic_path = ws.bundle / "LICENSE.md"
-    if license_file:
-        text = Path(license_file).read_text(encoding="utf-8")
+    if licence_text is not None:
         lic_path.write_text(
             f"# Licence for {ws.model_id}\n\nSPDX: {prov['license']}\n\nCopyright and attribution: "
-            f"{prov['developer']}. Original weights: {prov['source']}\n\n---\n\n{text}",
+            f"{prov['developer']}. Original weights: {prov['source']}\n\n---\n\n{licence_text}",
             encoding="utf-8",
         )
     elif not lic_path.exists():
@@ -325,7 +367,9 @@ def scaffold(
                 f"{onnx_sha}; update it (or pass --reset-card to regenerate from the template)"
             )
         else:
-            warnings.append("kept your existing MODEL_CARD.md (pass --reset-card to regenerate)")
+            warnings.append(
+                "kept your existing MODEL_CARD.md (pass --reset-card to regenerate)"
+            )
     out_desc = {
         "detector": f"{chosen['postprocess']} boxes, {_classes(len(names))}",
         "classifier": f"{chosen['postprocess']} over {_classes(len(names))}",
@@ -350,7 +394,10 @@ def scaffold(
         source=prov["source"],
         reference=prov["reference"],
         geo_desc=geo_scope + (f" ({', '.join(geo_regions)})" if geo_regions else ""),
-        input_desc=f"RGB image, {preprocess} to {w}x{h} (width x height), {normalization}",
+        input_desc=(
+            f"{channel_order.upper()} image, {preprocess} to {w}x{h} (width x height), "
+            f"normalization: {normalization}"
+        ),
         output_desc=out_desc,
         engine_version=caps.ENGINE_VERSION,
         submitter=prov.get("submitter") or "TODO",

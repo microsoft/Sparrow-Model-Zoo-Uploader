@@ -21,16 +21,21 @@ Ultralytics, TensorFlow, or an existing ONNX file) to ONNX.
 
 ### Licence and rights
 
-The zoo hosts weights only when their licence allows redistribution of a converted copy.
+The uploader is MIT-licensed. Your model keeps its own licence, and that licence describes
+only the submission bundle. Any stated weights licence is accepted and recorded as given:
 
-- **Accepted:** permissive and attribution licences (MIT, Apache-2.0, BSD, CC-BY-4.0 and
-  similar), share-alike and copyleft licences (CC-BY-SA, GPL, AGPL, LGPL, MPL) and OpenRAIL.
-  Conditions the licence implies (attribution, share-alike, copyleft) are recorded as
-  restrictions automatically; add others the licence text states with `--restrictions`.
-- **Not accepted:** non-commercial terms (for example CC-BY-NC), no-derivatives terms
-  (converting to ONNX is a derivative), "research only", proprietary, or no stated licence.
-- If code under another licence is compiled into the ONNX graph (for example an AGPL wrapper),
-  name it with `--framework-licenses`.
+- Permissive and attribution licences (MIT, Apache-2.0, BSD, CC-BY-4.0 and similar) are
+  recorded with `commercial_use = true`.
+- Non-commercial terms (for example CC-BY-NC, "research only") are recorded with
+  `commercial_use = false` and a `non_commercial` restriction.
+- Licences the uploader does not know (custom or proprietary terms) are recorded with
+  `commercial_use_status = unverified`; the zoo reviewer reads the licence text.
+- Conditions the licence implies (attribution, share-alike, copyleft, no-derivatives) are
+  recorded as restrictions automatically; add others the licence text states with
+  `--restrictions`. The zoo reviewer decides whether and how the weights are hosted.
+- If code under another licence is compiled into the ONNX graph, name it with
+  `--framework-licenses`. When the conversion uses Ultralytics (AGPL-3.0), `init` adds
+  `AGPL-3.0` to the bundle's framework licences automatically.
 
 You will be asked for: the weights licence (SPDX id) and a URL to its text, the rights holder,
 the developer, a citation or reference, the URL where the original weights are published, and
@@ -125,25 +130,37 @@ What never leaves your machine:
 
 The agent asks before anything is uploaded or any issue is opened.
 
-## 4. Review
+## 4. Submission and review
 
-Uploading for review is not automated in this version; the README will describe the submission
-step when it is available. On review:
+`submit --confirm-public` uploads the zip, `submission.json` and a short README to
+`submissions/<model_id>/<timestamp>/` in a new pull request on the Hugging Face repository
+`ai-for-good-lab/sparrow-model-zoo-submission`. You need a Hugging Face Write token. The pull
+request is public from the moment it is opened, so only submit weights you may redistribute.
+`submit --dry-run` shows what would be uploaded without uploading. `status` prints the pull
+request state and its comments. An open pull request is waiting for review or for your changes;
+a closed one has a decision in its last comment. Pull requests are never merged.
+
+To answer a review comment, fix the bundle, re-run `package`, and push a new revision to the same
+pull request with `submit --pr <number> --confirm-public`.
+
+On review:
 
 1. The reviewer re-runs `verify` and reads the evidence files.
 2. The reviewer checks the licence and the source of the weights against `SOURCE.md` and the
    hashes in `SOURCE_ARTIFACT.json`.
 3. On approval the reviewer sets the fields listed in `submission.json` under
-   `review_required`: `hosting_status = "hosted"`, `rights_status = "verified"` and
-   `conversion_permission = "verified"`, and removes the "Unreviewed submission" banner from the
-   model card. Until then the draft entry stays `pending_rights` and the zoo does not host the
+   `review_required.set_on_approval`. For a licence with no conditions these are
+   `hosting_status = "hosted"`, `rights_status = "verified"` and
+   `conversion_permission = "verified"`; for a licence with conditions (non-commercial, no
+   derivatives, share-alike) they are `hosted_restricted`, `conditional` and `conditional`. The
+   reviewer also removes the "Unreviewed submission" banner from the model card. Until then the draft entry stays `pending_rights` and the zoo does not host the
    weights.
 
 ## 5. When something goes wrong
 
 | Situation | What happens |
 |---|---|
-| Licence unknown, non-commercial, no-derivatives or non-redistributable | The agent stops and explains the zoo policy |
+| You do not know the weights licence | The agent asks you to find it; it never guesses one |
 | Audio or video model | The agent stops before downloading weights |
 | Three failed conversion attempts, or no engine contract fits | The agent writes `engine_gap_report.md`; with your consent it opens an issue on Sparrow Engine |
 | A gate fails | The agent fixes the cause and re-runs; thresholds are not changed |

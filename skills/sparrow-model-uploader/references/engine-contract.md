@@ -48,14 +48,24 @@ produces uint8, rounded to the nearest value. Normalisation is applied after tha
 
 | `--interpolation` | Matches |
 |---|---|
-| `bilinear`, `bicubic`, `lanczos` | PIL antialiased resampling, i.e. `torchvision.transforms.Resize` on a PIL image or `PIL.Image.resize` (bilinear to ~1e-3) |
-| `cv2_bilinear` | `cv2.resize(..., INTER_LINEAR)`: no antialiasing, rounded |
+| `bilinear`, `bicubic`, `lanczos` | PIL antialiased resampling, i.e. `torchvision.transforms.Resize` on a PIL image or `PIL.Image.resize` (bilinear to ~1e-3); bicubic drifts on large downscales, see below |
+| `cv2_bilinear` | `cv2.resize(..., INTER_LINEAR)` to within 1 grey level: the engine computes float bilinear (half-pixel centres, no antialiasing) and rounds, while OpenCV uses fixed-point weights |
 | `nearest` | `torch.nn.functional.interpolate(mode="nearest")` |
 
 The engine has no resize that works on a float tensor, such as `torchvision.transforms.v2.Resize`
 on a tensor or `F.interpolate(mode="bilinear", antialias=False)`, and no truncating
 requantisation. If upstream preprocesses that way, try the closest option above. If pipeline
 parity still fails while raw parity passes, that is an engine gap, not a conversion error.
+
+Measured on spe 0.1.30 (a flatten-only probe model, `spe embed`): for small downscales `bicubic`
+and `cv2_bilinear` are within 1 grey level of PIL bicubic and OpenCV. For large downscales (a
+1280x960 camera-trap frame to 182x182, about 7x) `bicubic` differs from PIL by 0.09 grey level on
+average and up to 7 at a few pixels, on lossless PNG as well as JPEG, so the gap is in the resize
+filter, not the decoder. Most models do not notice. A model near a decision boundary on the parity
+images can move by several hundredths in probability, more so on images unlike its training data
+(for example whole frames given to a classifier trained on crops). To tell a conversion error from
+this engine gap, feed the engine pre-resized images at the model's input size (the resize is then
+the identity) and compare again: if that passes, report the gap in the card.
 
 For an exact integer upscale (e.g. x2), `bilinear` and `cv2_bilinear` use the same weights and give
 identical output; the difference shows only when downscaling. A torch float-tensor upscale still

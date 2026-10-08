@@ -49,13 +49,74 @@ _LICENSE_RESTRICTIONS: dict[str, list[str]] = {
 _COPYLEFT = ["copyleft", "source_offer"]
 
 
+# Licences whose terms are known to allow commercial use of the weights.
+COMMERCIAL_OK = {
+    *_LICENSE_RESTRICTIONS,
+    "CC-BY-ND-4.0",
+    "GPL-3.0",
+    "GPL-3.0-only",
+    "GPL-3.0-or-later",
+    "AGPL-3.0",
+    "AGPL-3.0-only",
+    "AGPL-3.0-or-later",
+    "LGPL-3.0",
+    "LGPL-3.0-only",
+    "LGPL-3.0-or-later",
+}
+_NC_RE = re.compile(
+    r"\bNC\b|non[-_ ]?commercial|research[-_ ]only|academic[-_ ]only", re.I
+)
+_ND_RE = re.compile(r"\bND\b|no[-_ ]?deriv", re.I)
+ULTRALYTICS_LICENSE = "AGPL-3.0"
+
+
+def commercial_use_status(spdx: str) -> str:
+    """Zoo catalog commercial_use_status implied by the weights licence: allowed/prohibited/unverified."""
+    s = spdx.strip()
+    if _NC_RE.search(s):
+        return "prohibited"
+    if s in COMMERCIAL_OK:
+        return "allowed"
+    return "unverified"
+
+
 def license_restrictions(spdx: str) -> list[str]:
     s = spdx.strip()
     if s in _LICENSE_RESTRICTIONS:
         return list(_LICENSE_RESTRICTIONS[s])
     if re.match(r"^(A|L)?GPL-", s):
         return list(_COPYLEFT)
-    return list(_ATTRIBUTION)
+    out = list(_ATTRIBUTION)
+    if _NC_RE.search(s):
+        out.append("non_commercial")
+    if _ND_RE.search(s):
+        out.append("no_derivatives")
+    if re.search(r"\bSA\b|share[-_ ]?alike", s, re.I):
+        out.append("sharealike")
+    return out
+
+
+def uses_ultralytics(framework: str) -> bool:
+    return "ultralytics" in (framework or "").lower()
+
+
+def approval_fields(prov: dict[str, Any]) -> dict[str, str]:
+    """Rights fields a zoo admin sets on approval. Conditional terms mean hosted_restricted."""
+    restrictions = rights_fields(prov)["restrictions"]
+    unconditional = commercial_use_status(prov.get("license", "")) == "allowed" and set(
+        restrictions
+    ) <= {"attribution"}
+    if unconditional:
+        return {
+            "hosting_status": "hosted",
+            "rights_status": "verified",
+            "conversion_permission": "verified",
+        }
+    return {
+        "hosting_status": "hosted_restricted",
+        "rights_status": "conditional",
+        "conversion_permission": "conditional",
+    }
 
 
 def is_http_url(value: Any) -> bool:
@@ -71,18 +132,20 @@ def is_http_url(value: Any) -> bool:
 def rights_fields(prov: dict[str, Any]) -> dict[str, Any]:
     """Submitter-side rights fields for the catalog row draft (zoo catalog schema 1.2).
 
-    Intake only admits licences that allow commercial use, so commercial_use is true.
-    hosting_status / rights_status / conversion_permission stay pending until a zoo admin
-    verifies the licence; rights_record names this submission as the evidence route.
+    The uploader accepts any stated weights licence; it only describes the bundle.
+    commercial_use follows the licence (prohibited for NC terms, unverified for licences the
+    uploader does not know). hosting_status / rights_status / conversion_permission stay
+    pending until a zoo admin verifies the licence; rights_record names this submission.
     """
+    commercial = commercial_use_status(prov.get("license", ""))
     restrictions = list(
         dict.fromkeys(
             prov.get("restrictions") or license_restrictions(prov.get("license", ""))
         )
     )
     return {
-        "commercial_use": True,
-        "commercial_use_status": "allowed",
+        "commercial_use": commercial == "allowed",
+        "commercial_use_status": commercial,
         "hosting_status": "pending_rights",
         "rights_status": "unverified",
         "rights_record": f"sparrow-uploader-submission:{prov.get('model_id', '')}",

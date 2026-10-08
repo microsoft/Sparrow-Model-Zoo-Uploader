@@ -103,6 +103,7 @@ def test_classifier_decision_band():
     ref = {"a": 0.80, "b": 0.15, "c": 0.05}
     cmp, errs = compare_classification(ref, {"a": 0.795, "b": 0.155, "c": 0.05})
     assert not errs and not cmp["in_decision_band"]
+    assert cmp["reference_top5"] == {"a": 0.8, "b": 0.15, "c": 0.05} and "a" in cmp["engine_top5"]
     assert pipeline_verdict(errs, [], None) == ("pass", None)
 
     cmp, errs = compare_classification(ref, {"a": 0.77, "b": 0.18, "c": 0.05})
@@ -138,3 +139,69 @@ def test_lint_evidence_issue_and_card_for_decision_band():
     }
     md = parity_markdown(None, pipe)
     assert "(ACCEPTED)" in md and "Reason: resize rounding" in md and "3 image(s)" in md
+
+
+def _topk(rows):
+    return np.array(rows, dtype=np.float64)[None, None]  # [samples, batch, rows, channels]
+
+
+def test_confident_rows_ignores_tie_order_of_low_score_rows():
+    from sparrow_uploader.parity import _confident_rows, summarize
+
+    ref = _topk([[10, 10, 50, 50, 0.9, 0], [0, 0, 600, 600, 0.0, 0], [900, 900, 960, 960, 0.0, 0]])
+    cand = _topk([[10, 10, 50, 50, 0.9, 0], [900, 900, 960, 960, 0.0, 0], [0, 0, 600, 600, 0.0, 0]])
+    assert summarize(ref, cand)["max_abs_delta"] > 100
+    g = _confident_rows(ref, cand, "4:0.05")
+    assert g["rows_compared"] == 1 and g["max_abs_delta"] == 0.0 and g["count_mismatches"] == 0
+
+
+def test_confident_rows_catches_a_missing_or_moved_box():
+    from sparrow_uploader.parity import _confident_rows
+
+    ref = _topk([[10, 10, 50, 50, 0.9, 0], [0, 0, 1, 1, 0.0, 0]])
+    moved = _topk([[30, 10, 70, 50, 0.9, 0], [0, 0, 1, 1, 0.0, 0]])
+    assert _confident_rows(ref, moved, "4:0.05")["max_abs_delta"] == 20
+    missing = _topk([[0, 0, 1, 1, 0.0, 0], [0, 0, 1, 1, 0.0, 0]])
+    g = _confident_rows(ref, missing, "4:0.05")
+    assert g["max_abs_delta"] > 0.5 and g["count_mismatches"] == 1
+
+
+def test_confident_rows_rejects_bad_spec(run, initialised, tmp_path):
+    mid = _setup(run, initialised, tmp_path)
+    src = make_classifier(tmp_path / "src.onnx")
+    rc, out = run("parity", "raw", "--model-id", mid, "--source-onnx", str(src), "--samples", "2",
+                  "--confident-rows", "x")
+    assert rc == 2 and "COL:MIN" in out["error"]
+    rc, out = run("parity", "raw", "--model-id", mid, "--source-onnx", str(src), "--samples", "2",
+                  "--confident-rows", "9:0.1")
+    assert rc == 2 and "rows x channels" in out["error"]
+
+
+def test_rerun_keeps_failed_raw_parity_in_history(run, initialised, tmp_path):
+    from sparrow_uploader.workspace import Workspace
+
+    mid = _setup(run, initialised, tmp_path)
+    diff = make_classifier(tmp_path / "src_diff.onnx", scale=3.0)
+    assert run("parity", "raw", "--model-id", mid, "--source-onnx", str(diff), "--samples", "2")[0] == 1
+    same = make_classifier(tmp_path / "src_same.onnx")
+    rc, out = run("parity", "raw", "--model-id", mid, "--source-onnx", str(same), "--samples", "2")
+    assert rc == 0
+    assert out["model_output_shape"] == [1, 3] and out["compared_shape"] == [2, 1, 3]
+    hist = Workspace.open(mid, tmp_path / "ws").read_evidence("parity_raw_history")
+    assert [h["result"] for h in hist] == ["fail"]
+
+
+def test_confident_rows_errors_on_extra_box_and_empty(run, initialised, tmp_path, monkeypatch):
+    import sparrow_uploader.parity as P
+
+    mid = _setup(run, initialised, tmp_path)
+    ref = _topk([[10, 10, 50, 50, 0.9, 0], [0, 0, 1, 1, 0.0, 0]])
+    extra = _topk([[10, 10, 50, 50, 0.9, 0], [0, 0, 1, 1, 0.8, 0]])
+    empty = _topk([[0, 0, 1, 1, 0.01, 0], [0, 0, 1, 1, 0.0, 0]])
+    src = make_classifier(tmp_path / "src.onnx")
+    for r, c, msg in ((ref, extra, "different number"), (empty, empty, "nothing was compared")):
+        outs = iter([r[0], c[0]])
+        monkeypatch.setattr(P, "run_onnx", lambda *a, **k: next(outs))
+        rc, out = run("parity", "raw", "--model-id", mid, "--source-onnx", str(src),
+                      "--samples", "1", "--confident-rows", "4:0.05")
+        assert rc == 1 and any(msg in e for e in out["errors"]), out

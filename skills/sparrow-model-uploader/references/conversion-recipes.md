@@ -28,10 +28,15 @@ them yet. Treat this as an engine gap.
 
 ## PyTorch (state dict + model class)
 
+`torch.load` on a `.pt`/`.pth`/`.ckpt` file unpickles it, which can run arbitrary code. Load
+upstream weights with `weights_only=True` where possible. If upstream code needs
+`weights_only=False` (common with older checkpoints or Ultralytics), do it only for weights from
+the source the user named, in a separate environment, and say so in the provenance notes.
+
 ```python
 import torch
 model = build_model(...)                       # upstream model class
-model.load_state_dict(torch.load("weights.pth", map_location="cpu"))
+model.load_state_dict(torch.load("weights.pth", map_location="cpu", weights_only=True))
 model.eval()
 dummy = torch.randn(1, 3, H, W)
 torch.onnx.export(
@@ -59,10 +64,25 @@ Install the extra: `uv tool install 'sparrow-model-uploader[ultralytics] @ git+h
 
 ```python
 from ultralytics import YOLO
-YOLO("best.pt").export(format="onnx", opset=18, imgsz=640, dynamic=True, simplify=True)
+YOLO("best.pt").export(format="onnx", opset=18, imgsz=640, simplify=True)
 ```
 
+- Do not pass `dynamic=True`: it makes height and width dynamic too, and `validate` rejects any
+  dynamic axis except the batch. To keep a dynamic batch, export static and then mark only
+  axis 0 dynamic: for each graph input and output,
+  `t.type.tensor_type.shape.dim[0].dim_param = "batch"`, then `onnx.save` and re-run `validate`.
+  Skip this for NMS exports (see below).
+- Record the Ultralytics version in `--framework` and the card: export and predict defaults
+  changed between 8.3 and 8.4.
+
 - YOLOv10 exports end-to-end output `[B, 300, 6]` (NMS-free) → postprocessing `yolo_e2e`.
+  On Ultralytics 8.4.x pass `nms=False` to both `export` and `predict`: the default `nms=None`
+  selects the one-to-many head, so the export is a raw head and the upstream reference silently
+  uses a different head (different scores). Alternatively pin `ultralytics==8.3.0`, which also
+  needs `onnxscript`. Check that the exported output is `[B, 300, 6]` before continuing.
+- Ultralytics `predict` treats a numpy array as BGR (a file path or PIL image as RGB). When you
+  write the upstream reference script for pipeline parity, pass file paths, not arrays, or the
+  reference uses swapped channels.
 - YOLOv8/11 export raw heads `[B, 4+C, N]`. The engine has no postprocessing for this layout.
   Either export with NMS in the graph (`nms=True` on recent Ultralytics versions, producing
   `[B, N, 6]` → `yolo_e2e`), or treat it as an engine gap.
@@ -71,11 +91,13 @@ YOLO("best.pt").export(format="onnx", opset=18, imgsz=640, dynamic=True, simplif
   only the first image.
 - Ultralytics uses letterbox resize with `cv2` bilinear interpolation, RGB, values scaled to
   0–1: scaffold with `--preprocess letterbox --interpolation cv2_bilinear --normalization unit`.
-- Ultralytics `predict` pads only to a multiple of the stride ("rect" letterbox, e.g. 960x736
-  for a 4:3 photo at `imgsz=960`). The engine pads to the full fixed input size and has no rect
-  mode. If upstream's own images are mostly one aspect ratio, export at that rect shape
-  (`imgsz=[736, 960]`, height first) so the padding matches; a square export can fail pipeline
-  parity on box positions and confidences near the threshold. Record the chosen shape in the card.
+- Letterbox shape: check what upstream's inference actually does before choosing the export
+  shape. Ultralytics 8.4 `predict` pads to the full square by default (`rect=False`). Ultralytics
+  8.3 pads only to a stride multiple ("rect", e.g. 960x736 for a 4:3 photo at `imgsz=960`) for a
+  single image, but to the full square when a batch mixes image sizes, which is what batched
+  wrappers such as Pytorch-Wildlife do. The engine always pads to the fixed input size. Export
+  square unless upstream really runs rect on one aspect ratio; only then export at that rect
+  shape (`imgsz=[736, 960]`, height first). Record the chosen shape in the card.
 
 Raw parity:
 
@@ -90,6 +112,11 @@ Raw parity:
   `parity raw --model-id ID --input-npy inputs.npy --source-onnx upstream_nms.onnx`.
   Box coordinates are in input pixels (hundreds), so a 1e-3 absolute gate is tight: report the
   measured delta and `max_abs_delta_relative`; pipeline parity (S10) is the deciding gate here.
+- Top-k / NMS-free outputs (`[B, 300, 6]`, `[B, N, 6]`): rows with near-equal scores (often the
+  zero-score padding rows) come out in a different order from two runtimes, and an all-channel
+  comparison then fails with deltas of hundreds of pixels although the detections agree. Add
+  `--confident-rows 4:0.05`: each side is sorted by the score column and every channel of the
+  rows scoring ≥ 0.05 is compared. Do not use `--score-channels 4:5` for this; it drops the boxes.
 
 ## YOLOv5 (original repository)
 
@@ -105,7 +132,13 @@ uv run --no-project --python 3.11 --with 'tf2onnx>=1.16' --with 'tensorflow==2.1
 ```
 
 For a Keras `.keras`/`.h5` file, load it and save as SavedModel first
-(`model.export("saved_model_dir")`). TensorFlow models are usually NHWC: either add
+(`model.export("saved_model_dir")`). A legacy Keras 2 `.h5` file (TF ≤ 2.15), especially one
+saved with a `mixed_float16` policy, often does not load in Keras 3 (TF 2.16+): use
+`tensorflow==2.15.1` and `tf.saved_model.save(model, "saved_model_dir")` instead. Rebuild a
+`mixed_float16` model as float32 (same architecture, `model.set_weights(old.get_weights())`)
+before export; the float16 graph can give NaN on CPU. If the last layer applies softmax and the
+manifest postprocessing is `softmax`, set that layer's activation to linear before export so
+softmax is not applied twice (see `engine-contract.md`). TensorFlow models are usually NHWC: either add
 `--inputs-as-nchw input_name:0` to tf2onnx, or put a transpose at the start of the graph.
 
 If tf2onnx reports `Unsupported op XlaCallModule`, the model was saved through JAX/StableHLO.
@@ -119,6 +152,12 @@ an engine-gap / help case.
 - timm: build the model with `timm.create_model(name, pretrained=True)` and use the PyTorch recipe.
   `timm.data.resolve_data_config({}, model=model)` tells you input size, interpolation, mean/std
   and crop: use these for the `scaffold` flags.
+- timm ViT with `dynamic_img_size=True` interpolates the position embedding with antialiased
+  bicubic, which does not export. Create the model at the fixed input size (or resample
+  `pos_embed` once in PyTorch and load it) so the exported graph has a constant embedding.
+- For timm and other PyTorch models, prefer `parity raw --emit-inputs inputs.npy`, run the
+  original model on those inputs in its own environment, then `--reference-outputs ref.npy`.
+  Tracing to TorchScript only for parity is not needed.
 - open_clip: export `model.visual` (plus projection) with the PyTorch recipe; the engine
   L2-normalises the embedding (`normalize = true`).
 

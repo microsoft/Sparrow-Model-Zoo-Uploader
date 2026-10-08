@@ -11,7 +11,7 @@ from typing import Any
 
 from . import __version__
 from . import capabilities as caps
-from .workspace import UploaderError, Workspace
+from .workspace import GateFailed, UploaderError, Workspace
 
 
 def _ws(args) -> Workspace:
@@ -50,6 +50,7 @@ def cmd_init(a):
         display_name=a.display_name,
         framework_licenses=_csv(a.framework_licenses),
         restrictions=_csv(a.restrictions),
+        ai4g_relationship=a.ai4g_relationship,
         force=a.force,
     )
 
@@ -122,6 +123,7 @@ def cmd_parity_raw(a):
         seed=a.seed,
         score_channels=a.score_channels,
         score_axis=a.score_axis,
+        confident_rows=a.confident_rows,
         max_abs_delta=a.max_abs_delta,
         min_cosine=a.min_cosine,
     )
@@ -158,6 +160,26 @@ def cmd_verify(a):
     from .package import verify
 
     return verify(Path(a.zip))
+
+
+def cmd_submit(a):
+    from .submit import submit
+
+    return submit(
+        _ws(a),
+        zip_path=a.zip,
+        repo=a.repo,
+        token=a.token,
+        pr=a.pr,
+        confirm_public=a.confirm_public,
+        dry_run=a.dry_run,
+    )
+
+
+def cmd_status(a):
+    from .submit import status
+
+    return status(_ws(a), repo=a.repo, token=a.token, pr=a.pr)
 
 
 def cmd_install_skill(a):
@@ -229,6 +251,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sp.add_argument("--submitter", default="", help="your Hugging Face username")
     sp.add_argument(
+        "--ai4g-relationship",
+        default="third_party",
+        choices=["first_party", "third_party", "unverified"],
+        help="first_party only for models developed by Microsoft AI for Good",
+    )
+    sp.add_argument(
         "--license-url",
         default="",
         help="URL of the LICENSE file at the pinned revision (defaults to --source)",
@@ -237,7 +265,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--rights-holder", default="", help="copyright holder (defaults to --developer)"
     )
     sp.add_argument(
-        "--source-revision", default="", help="commit, tag or release of the original weights"
+        "--source-revision",
+        default="",
+        help="commit, tag or release of the original weights",
     )
     sp.add_argument(
         "--source-weights",
@@ -247,7 +277,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="original weights file converted to ONNX; repeat for several files (sha256 recorded)",
     )
     sp.add_argument(
-        "--display-name", default="", help="readable catalog name, e.g. 'DeepForest Tree-Crown Detector'"
+        "--display-name",
+        default="",
+        help="readable catalog name, e.g. 'DeepForest Tree-Crown Detector'",
     )
     sp.add_argument(
         "--framework-licenses",
@@ -359,6 +391,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=-1,
         help="output axis --score-channels slices (YOLOv8 raw head [B, 4+C, N]: use 1)",
     )
+    raw.add_argument(
+        "--confident-rows",
+        metavar="COL:MIN",
+        help="top-k / NMS-free detector outputs [.., rows, channels]: sort each side by score "
+        "column COL and compare every channel of the rows scoring >= MIN (e.g. 4:0.05)",
+    )
     raw.add_argument("--max-abs-delta", type=float, default=1e-3)
     raw.add_argument("--min-cosine", type=float, default=0.999999)
     pipe.add_argument(
@@ -392,6 +430,37 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--out", type=Path)
     sp.add_argument("--hf-username")
 
+    from .submit import SUBMISSION_REPO
+
+    sp = stage(
+        "submit",
+        cmd_submit,
+        "open a pull request with the zip on the Hugging Face submission repo",
+    )
+    sp.add_argument("--zip", type=Path, help="default: the zip from the last `package`")
+    sp.add_argument("--repo", default=SUBMISSION_REPO)
+    sp.add_argument("--token", help="HF Write token (default: $HF_TOKEN)")
+    sp.add_argument(
+        "--pr", type=int, help="push a new revision to this existing PR number"
+    )
+    sp.add_argument(
+        "--confirm-public",
+        action="store_true",
+        help="the submitter agrees the PR and files are public as soon as they are uploaded",
+    )
+    sp.add_argument(
+        "--dry-run", action="store_true", help="show what would be uploaded"
+    )
+
+    sp = stage(
+        "status", cmd_status, "show the review state and comments of the submission PR"
+    )
+    sp.add_argument("--repo", help="default: the repo recorded by `submit`")
+    sp.add_argument(
+        "--token", help="HF token (default: $HF_TOKEN; public repos need none)"
+    )
+    sp.add_argument("--pr", type=int, help="default: the PR recorded by `submit`")
+
     sp = sub.add_parser(
         "verify", help="check a submission zip (paths, members, hashes)"
     )
@@ -417,8 +486,16 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         out: dict[str, Any] = args.fn(args)
+    except GateFailed as err:
+        print(json.dumps({"result": "fail", "error": str(err)}, indent=2))
+        return 1
     except UploaderError as err:
         print(json.dumps({"result": "error", "error": str(err)}, indent=2))
+        return 2
+    except Exception as err:  # noqa: BLE001 - agents parse stdout; never emit a bare traceback
+        # e.g. protobuf DecodeError for a non-ONNX file, TOMLDecodeError for a hand-edited manifest.
+        msg = f"{type(err).__name__}: {err}"
+        print(json.dumps({"result": "error", "error": msg}, indent=2))
         return 2
     print(json.dumps(out, indent=2, default=str))
     return 1 if out.get("result") in ("fail", "needs_decision") else 0

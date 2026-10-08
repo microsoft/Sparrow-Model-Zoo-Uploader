@@ -7,6 +7,7 @@ Layout (default root `.sparrow-upload/` in the current directory):
         bundle/<model_id>/{manifest.toml, 1/model.onnx, labels.txt, MODEL_CARD.md, LICENSE.md}
         evidence/<stage>.json
         evidence/parity_reference/{reference_predictions.json, MANIFEST.sha256}
+        evidence/parity_zoo_compare/{...}   (`--reference-bundle` duplicate check; not shipped)
         dist/<model_id>-submission.zip
 
 `bundle/` is a valid `spe --model-dir`: the engine resolves models by flat id.
@@ -27,10 +28,16 @@ from . import __version__
 
 MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$")
 EVIDENCE_SCHEMA = "1.0"
+# Re-running these gates keeps the earlier records, so a failing run cannot silently disappear.
+HISTORY_STAGES = ("parity_raw", "parity_pipeline")
 
 
 class UploaderError(Exception):
-    """A user-facing failure; the CLI prints the message and exits 1."""
+    """A user-facing usage or input error; the CLI prints the message and exits 2."""
+
+
+class GateFailed(UploaderError):
+    """A stage refused because an earlier gate has not passed; the CLI exits 1."""
 
 
 def now_iso() -> str:
@@ -112,6 +119,17 @@ class Workspace:
             **data,
         }
         path = self.evidence_path(stage)
+        if stage in HISTORY_STAGES and path.is_file():
+            hist_path = self.evidence_path(f"{stage}_history")
+            hist = (
+                json.loads(hist_path.read_text(encoding="utf-8"))
+                if hist_path.is_file()
+                else []
+            )
+            hist.append(json.loads(path.read_text(encoding="utf-8")))
+            hist_path.write_text(
+                json.dumps(hist, indent=2, default=str) + "\n", encoding="utf-8"
+            )
         path.write_text(
             json.dumps(record, indent=2, default=str) + "\n", encoding="utf-8"
         )

@@ -11,11 +11,12 @@ from typing import Any
 from .smoke import list_models
 from .compliance import (
     GENERATED_FILES,
+    commercial_use_status,
     placeholder_lines,
     provenance_issues,
     write_compliance,
 )
-from .workspace import UploaderError, Workspace
+from .workspace import UploaderError, Workspace, sha256_file
 
 CATALOG_URL = "https://raw.githubusercontent.com/microsoft/SPARROW-Engine/main/sparrow-engine/scripts/catalog.toml"
 REQUIRED_EVIDENCE = (
@@ -47,6 +48,12 @@ def _source_key(url: str) -> str:
     return "/".join([parts[0], parts[1], parts[2].removesuffix(".git")])
 
 
+def _ref_key(ref: str) -> str:
+    """A DOI found in a citation or URL, lower-cased; '' when there is none."""
+    hit = re.search(r"10\.\d{4,9}/[^\s\"'<>]+", ref or "")
+    return hit.group(0).rstrip(".,;)").lower() if hit else ""
+
+
 def load_catalog(path: Path | None) -> tuple[list[dict[str, Any]], str]:
     if path:
         text, src = Path(path).read_text(encoding="utf-8"), str(path)
@@ -73,11 +80,12 @@ def _fmt(v: Any) -> str:
 def parity_markdown(raw: dict | None, pipe: dict | None) -> str:
     lines = []
     if raw:
+        t = raw["thresholds"]
         g = (
-            raw["measurements"].get("score_channels")
+            raw["measurements"].get(t["applied_to"])
             or raw["measurements"]["all_channels"]
         )
-        t = raw["thresholds"]
+        a = raw["measurements"]["all_channels"]
         lines += [
             f"**Raw tensor parity** ({raw['result'].upper()}): `{raw['source']}` vs `{raw['target']}`, "
             f"{raw['samples']} {raw['input_source']} inputs of shape {raw['input_shape']}, "
@@ -87,8 +95,13 @@ def parity_markdown(raw: dict | None, pipe: dict | None) -> str:
             "|---|---|---|",
             f"| max abs delta | {_fmt(g['max_abs_delta'])} | ≤ {_fmt(t['max_abs_delta'])} |",
             f"| cosine similarity | {g['cosine_similarity']:.7f} | ≥ {t['min_cosine_similarity']} |",
-            "",
         ]
+        if t["applied_to"] != "all_channels":
+            lines.append(
+                f"| all channels (not gated) | max abs delta {_fmt(a['max_abs_delta'])}, "
+                f"cosine {a['cosine_similarity']:.7f} | — |"
+            )
+        lines.append("")
     else:
         lines += ["**Raw tensor parity**: not run.", ""]
     if pipe and pipe.get("result") != "skipped":
@@ -150,6 +163,72 @@ def evidence_issue(stage: str, ev: dict | None) -> tuple[str | None, str]:
     return None, ""
 
 
+# Gates that ran the bundle's model.onnx and must be re-run when it or the manifest changes.
+MODEL_EVIDENCE = ("smoke", "parity_raw", "parity_pipeline")
+
+
+def staleness_issues(
+    ws: Workspace, manifest: dict[str, Any]
+) -> tuple[list[str], list[str]]:
+    """Errors when the manifest or gate evidence describes a different model.onnx than the
+    current one; warnings when gate evidence predates manifest.toml (e.g. `scaffold --force`)."""
+    errors: list[str] = []
+    warnings: list[str] = []
+    current = sha256_file(ws.onnx)
+    declared = manifest.get("model", {}).get("onnx_sha256")
+    if declared and declared != current:
+        errors.append(
+            "manifest.toml onnx_sha256 does not match the current model.onnx (the model changed "
+            "after scaffold); re-run `scaffold --force`, then smoke and parity"
+        )
+    manifest_mtime = ws.manifest.stat().st_mtime
+    for stage in MODEL_EVIDENCE:
+        ev = ws.read_evidence(stage)
+        if ev is None or ev.get("result") == "skipped":
+            continue
+        cmd = stage.replace("_", " ")
+        ran_on = ev.get("onnx_sha256")
+        if ran_on and ran_on != current:
+            errors.append(
+                f"evidence/{stage}.json is stale: it was produced for a different model.onnx "
+                f"(sha256 {ran_on[:12]}..., current {current[:12]}...); re-run `{cmd}`"
+            )
+        elif not ran_on:
+            warnings.append(
+                f"evidence/{stage}.json does not record the model.onnx sha256 it ran on; "
+                f"re-run `{cmd}` so the reviewer can tie it to this model"
+            )
+        if ws.evidence_path(stage).stat().st_mtime < manifest_mtime:
+            warnings.append(
+                f"evidence/{stage}.json is older than manifest.toml (scaffold re-ran after it?); "
+                f"re-run `{cmd}` so it checks the current manifest"
+            )
+    return errors, warnings
+
+
+def manifest_provenance_issues(
+    manifest: dict[str, Any], prov: dict[str, Any]
+) -> list[str]:
+    """Rights/identity fields scaffold copied from PROVENANCE.json that no longer agree with it,
+    e.g. after `init` was re-run with a corrected licence."""
+    m = manifest.get("model", {})
+    expected = {
+        "license": prov.get("license"),
+        "commercial_use": commercial_use_status(prov.get("license", "")) == "allowed",
+        "domain": prov.get("domain"),
+    }
+    found = {k: m.get(k) for k in expected}
+    if "developer" in manifest.get("provenance", {}):
+        expected["developer"] = prov.get("developer")
+        found["developer"] = manifest["provenance"]["developer"]
+    return [
+        f"manifest.toml {k} = {found[k]!r} disagrees with PROVENANCE.json ({expected[k]!r}); "
+        "re-run `scaffold --force` to regenerate the manifest from the current provenance"
+        for k in expected
+        if found[k] is not None and found[k] != expected[k]
+    ]
+
+
 def fill_card_parity(card: Path, md: str) -> bool:
     text = card.read_text(encoding="utf-8")
     if PARITY_BEGIN not in text or PARITY_END not in text:
@@ -190,6 +269,10 @@ def lint(
     m = manifest.get("model", {})
     if m.get("id") != ws.model_id:
         errors.append(f"manifest [model] id {m.get('id')!r} != {ws.model_id!r}")
+    errors += manifest_provenance_issues(manifest, prov)
+    s_err, s_warn = staleness_issues(ws, manifest)
+    errors += s_err
+    warnings += s_warn
 
     # Engine parses the manifest
     try:
@@ -246,6 +329,15 @@ def lint(
             errors.append(msg)
         elif level == "warning":
             warnings.append(msg)
+    for stage in ("parity_raw", "parity_pipeline"):
+        hist = ws.read_evidence(f"{stage}_history") or []
+        failed = sum(1 for h in hist if h.get("result") in ("fail", "needs_decision"))
+        if failed:
+            warnings.append(
+                f"{failed} earlier {stage.replace('_', ' ')} run(s) did not pass "
+                f"(evidence/{stage}_history.json ships with the package); say in the model card "
+                "why the final run differs"
+            )
     if (
         ws.onnx.stat().st_mtime > (ws.evidence_path("validate").stat().st_mtime + 1)
         if ws.evidence_path("validate").is_file()
@@ -273,16 +365,25 @@ def lint(
             a.lower() for e in entries for a in e.get("alias", [])
         }
         if ws.model_id.lower() in taken:
-            errors.append(
-                f"model id {ws.model_id!r} already exists in the published catalog; pick another id"
+            hit = next(
+                e["id"]
+                for e in entries
+                if ws.model_id.lower()
+                in {e["id"].lower(), *(a.lower() for a in e.get("alias", []))}
             )
+            errors.append(
+                f"model id {ws.model_id!r} collides with catalog entry {hit!r}. If it may be the "
+                "same model, run `parity pipeline --reference-bundle <hosted bundle> "
+                f"--reference-model-id {hit}` before choosing another id (skill S10)"
+            )
+        fam = {f.lower() for f in m.get("family", [])}
         overlap = [
             e["id"]
             for e in entries
             if e.get("domain") == m.get("domain")
             and e.get("task") == m.get("task")
             and (
-                set(e.get("family", [])) & set(m.get("family", []))
+                {f.lower() for f in e.get("family", [])} & fam
                 or (
                     m.get("geo_scope") == "regional"
                     and e.get("geo_scope") == "regional"
@@ -291,10 +392,12 @@ def lint(
             )
         ]
         own = _source_key(prov.get("source", ""))
+        own_ref = _ref_key(prov.get("reference", ""))
         same_source = [
             e["id"]
             for e in entries
-            if own and _source_key(e.get("original_source_url", "")) == own
+            if (own and _source_key(e.get("original_source_url", "")) == own)
+            or (own_ref and _ref_key(e.get("reference", "")) == own_ref)
         ]
         if same_source:
             warnings.append(
@@ -305,8 +408,9 @@ def lint(
             )
         if overlap:
             warnings.append(
-                f"catalog already has {m.get('domain')}×{m.get('task')} models in the same family or "
-                f"region: {overlap[:8]} (reviewer will ask for a measured comparison)"
+                f"catalog already has {m.get('domain')}×{m.get('task')} models in the same family "
+                f"(taxonomic family) or the same geo_region: {overlap[:8]}. The reviewer will "
+                "ask how this model compares; give a measured comparison in the card if you can"
             )
 
     # Fill parity section (after evidence checks so the table reflects what was checked)

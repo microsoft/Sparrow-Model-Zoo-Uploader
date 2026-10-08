@@ -6,8 +6,8 @@ from conftest import make_classifier
 from sparrow_uploader.workspace import Workspace
 
 
-def _bundle(run, initialised, tmp_path, task="classifier", labels=True):
-    mid = initialised(model_id=f"tiny-{task}", task=task)
+def _bundle(run, initialised, tmp_path, task="classifier", labels=True, init_extra=()):
+    mid = initialised(model_id=f"tiny-{task}", task=task, extra=init_extra)
     assert (
         run("validate", "--model-id", mid, str(make_classifier(tmp_path / "m.onnx")))[0]
         == 0
@@ -202,6 +202,30 @@ def test_license_restrictions():
     assert license_restrictions("CC0-1.0") == []
 
 
+def test_nc_licence_is_packaged_with_commercial_use_prohibited(run, initialised, tmp_path):
+    # Policy: any stated weights licence is accepted; it only describes the bundle.
+    mid, _ = _bundle(run, initialised, tmp_path, init_extra=("--license", "CC-BY-NC-4.0"))
+    z = _package(run, mid, tmp_path)
+    with zipfile.ZipFile(z) as zf:
+        manifest = zf.read(f"bundle/general/classifier/{mid}/manifest.toml").decode()
+        sub = json.loads(zf.read("submission.json"))
+    assert 'license = "CC-BY-NC-4.0"' in manifest and "commercial_use = false" in manifest
+    row = sub["catalog_row_draft"]
+    assert row["commercial_use"] is False and row["commercial_use_status"] == "prohibited"
+    assert "non_commercial" in row["restrictions"]
+    assert sub["review_required"]["set_on_approval"]["hosting_status"] == "hosted_restricted"
+
+
+def test_ultralytics_toolchain_records_agpl_framework_licence(run, tmp_path):
+    rc, out = run("init", "--model-id", "yolo", "--task", "detector", "--domain", "camera_trap",
+                  "--license", "MIT", "--source", "https://example.org/w", "--developer", "d",
+                  "--framework", "pytorch 2.5 / ultralytics 8.3")
+    assert rc == 0, out
+    prov = json.loads(Workspace.open("yolo", tmp_path / "ws").provenance.read_text())
+    assert prov["framework_licenses"] == ["AGPL-3.0"]
+    assert any("AGPL-3.0" in w for w in out["warnings"])
+
+
 def test_init_records_source_weights_and_rejects_non_url(run, tmp_path):
     w = tmp_path / "weights.pt"
     w.write_bytes(b"abc")
@@ -221,3 +245,74 @@ def test_init_records_source_weights_and_rejects_non_url(run, tmp_path):
         "--source", "a citation", "--developer", "Lab", "--domain", "general",
     )
     assert rc == 1 and any("http(s) URL" in e for e in out["errors"])
+
+
+def test_package_refused_by_failed_lint_exits_1(run, initialised, tmp_path):
+    mid, ws = _bundle(run, initialised, tmp_path)
+    ws.write_evidence("lint", "fail", {"errors": ["x"], "warnings": []})
+    rc, out = run("package", "--model-id", mid, "--out", str(tmp_path / "dist"))
+    assert rc == 1 and out["result"] == "fail", out
+
+
+def test_card_input_row_labels_normalization(run, initialised, tmp_path):
+    mid, ws = _bundle(run, initialised, tmp_path)
+    card = (ws.bundle / "MODEL_CARD.md").read_text()
+    assert "normalization: imagenet" in card
+
+
+def test_seeded_inputs_follow_manifest_normalization(run, initialised, tmp_path):
+    import numpy as np
+
+    mid, ws = _bundle(run, initialised, tmp_path)
+    text = ws.manifest.read_text().replace('normalization = "imagenet"', 'normalization = "none"')
+    ws.manifest.write_text(text)
+    rc, out = run("parity", "raw", "--model-id", mid, "--emit-inputs", str(tmp_path / "in.npy"))
+    assert rc == 0, out
+    x = np.load(tmp_path / "in.npy")
+    assert x.max() > 200 and x.min() >= 0
+
+
+def _catalog(tmp_path, **entry):
+    row = {"id": "Other-Model", "domain": "general", "task": "classifier", **entry}
+    body = "[[model]]\n" + "".join(f"{k} = {json.dumps(v)}\n" for k, v in row.items())
+    (tmp_path / "catalog.toml").write_text(body)
+    return str(tmp_path / "catalog.toml")
+
+
+def test_lint_family_overlap_ignores_case(run, initialised, tmp_path):
+    mid, ws = _bundle(run, initialised, tmp_path)
+    rc, out = run(
+        "scaffold", "--model-id", mid, "--preprocess", "resize", "--normalization", "imagenet",
+        "--license-file", str(tmp_path / "LICENSE.txt"), "--labels", str(tmp_path / "labels.txt"),
+        "--family", "megadetector", "--force",
+    )
+    assert rc == 0, out
+    _, out = run("lint", "--model-id", mid, "--catalog", _catalog(tmp_path, family=["MegaDetector"]))
+    assert any("same family" in w and "Other-Model" in w for w in out["warnings"]), out
+
+
+def test_lint_same_doi_reference_flags_duplicate(run, initialised, tmp_path):
+    mid, ws = _bundle(
+        run, initialised, tmp_path, init_extra=("--reference", "https://doi.org/10.5281/zenodo.123")
+    )
+    cat = _catalog(tmp_path, reference="Smith (2024). doi:10.5281/zenodo.123.")
+    _, out = run("lint", "--model-id", mid, "--catalog", cat)
+    assert any("Other-Model" in w and "duplicate" in w for w in out["warnings"]), out
+
+
+def test_lint_id_collision_names_entry_and_duplicate_check(run, initialised, tmp_path):
+    mid, ws = _bundle(run, initialised, tmp_path)
+    _, out = run("lint", "--model-id", mid, "--catalog", _catalog(tmp_path, id=mid.upper()))
+    hit = [e for e in out["errors"] if "collides" in e]
+    assert hit and mid.upper() in hit[0] and "--reference-bundle" in hit[0], out
+
+
+def test_ai4g_relationship_flag_reaches_catalog_row(run, initialised, tmp_path):
+    mid, ws = _bundle(
+        run, initialised, tmp_path, init_extra=("--ai4g-relationship", "first_party")
+    )
+    z = _package(run, mid, tmp_path)
+    with zipfile.ZipFile(z) as zf:
+        row = json.loads(zf.read("submission.json"))["catalog_row_draft"]
+    assert row["ai4g_relationship"] == "first_party"
+    assert 'ai4g_relationship = "first_party"' in ws.manifest.read_text()

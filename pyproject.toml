@@ -18,7 +18,7 @@ Issues = "https://github.com/microsoft/Sparrow-Model-Zoo-Uploader/issues"
 
 [project.optional-dependencies]
 # Conversion-time only. Ultralytics is AGPL-3.0; it never ships inside a bundle.
-ultralytics = ["torch>=2.4", "torchvision>=0.19", "ultralytics>=8.3"]
+ultralytics = ["torch>=2.6", "torchvision>=0.21", "ultralytics>=8.3"]
 submit = ["huggingface_hub>=0.25"]
 
 [project.scripts]

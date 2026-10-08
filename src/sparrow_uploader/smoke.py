@@ -11,7 +11,7 @@ from typing import Any
 from . import capabilities as caps
 from .doctor import find_spe, spe_version
 from .intake import list_images
-from .workspace import UploaderError, Workspace
+from .workspace import UploaderError, Workspace, sha256_file
 
 
 def _spe() -> str:
@@ -184,24 +184,36 @@ def smoke(
                 normalized,
             )
 
+    # Records check_record flagged (empty or malformed) are already errors; summarise defensively.
     summary = []
     for path, rec in records.items():
         item: dict[str, Any] = {"file": Path(path).name}
         if task == "detector":
-            item["detections"] = len(rec["detections"])
+            dets = rec.get("detections")
+            dets = dets if isinstance(dets, list) else []
+            item["detections"] = len(dets)
             item["top"] = max(
-                (d["confidence"] for d in rec["detections"]), default=None
+                (
+                    d.get("confidence")
+                    for d in dets
+                    if isinstance(d, dict)
+                    and isinstance(d.get("confidence"), (int, float))
+                ),
+                default=None,
             )
         elif task == "classifier":
-            item["top1"] = rec["classifications"][0]
+            cls = rec.get("classifications")
+            item["top1"] = cls[0] if isinstance(cls, list) and cls else None
         else:
-            item["embedding_dim"] = len(rec["embedding"])
+            emb = rec.get("embedding")
+            item["embedding_dim"] = len(emb) if isinstance(emb, list) else None
         summary.append(item)
 
     result = "pass" if not errors else "fail"
     data = {
         "spe_version": spe_version(_spe()),
         "engine_model_row": row,
+        "onnx_sha256": sha256_file(ws.onnx) if ws.onnx.is_file() else None,
         "images": len(files),
         "selection": f"first {len(files)} of {len(available)} images in name order (--limit)",
         "results": summary,

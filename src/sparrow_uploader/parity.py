@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -31,7 +32,24 @@ def _input_shape(onnx_path: Path) -> list[int]:
     return [1] + [int(d) for d in shape[1:]]
 
 
-def build_inputs(shape: list[int], samples: int, seed: int, input_npy: Path | None):
+IMAGENET_MEAN = (0.485, 0.456, 0.406)
+IMAGENET_STD = (0.229, 0.224, 0.225)
+
+
+def manifest_normalization(ws: Workspace) -> str:
+    if not ws.manifest.is_file():
+        return "unit"
+    manifest = tomllib.loads(ws.manifest.read_text(encoding="utf-8"))
+    return manifest.get("preprocessing", {}).get("normalization", "unit")
+
+
+def build_inputs(
+    shape: list[int],
+    samples: int,
+    seed: int,
+    input_npy: Path | None,
+    normalization: str = "unit",
+):
     import numpy as np
 
     if input_npy:
@@ -42,8 +60,17 @@ def build_inputs(shape: list[int], samples: int, seed: int, input_npy: Path | No
             )
         return arr
     rng = np.random.default_rng(seed)
-    # Uniform [0,1) exercises every weight path; preprocessing is excluded by construction.
-    return rng.random((samples, *shape[1:]), dtype=np.float32)
+    # Uniform pixels in [0,1) exercise every weight path; preprocessing is excluded by
+    # construction. They are mapped to the range the model sees after the manifest's normalisation,
+    # so a model fed 0-255 is not tested only on near-black images.
+    x = rng.random((samples, *shape[1:]), dtype=np.float32)
+    if normalization == "none":
+        x *= 255.0
+    elif normalization == "imagenet" and len(shape) == 4 and shape[1] == 3:
+        mean = np.array(IMAGENET_MEAN, np.float32).reshape(1, 3, 1, 1)
+        std = np.array(IMAGENET_STD, np.float32).reshape(1, 3, 1, 1)
+        x = (x - mean) / std
+    return x
 
 
 def run_onnx(path: Path, batch):
@@ -121,12 +148,59 @@ def summarize(ref, cand) -> dict[str, Any]:
     }
 
 
+def _confident_rows(ref, cand, spec: str) -> dict[str, Any]:
+    """Compare the confident rows of a top-k / NMS-free output ([..., rows, channels]).
+
+    Rows with near-equal scores can come out in a different order from two runtimes, which makes
+    an element-wise comparison of all rows fail although the detections agree. Each side is
+    sorted by its score column, and the reference's rows with score >= MIN are compared on every
+    channel against the same number of top rows of the converted output."""
+    import numpy as np
+
+    try:
+        col_s, min_s = spec.split(":")
+        col, min_score = int(col_s), float(min_s)
+    except ValueError as exc:
+        raise UploaderError(
+            f"--confident-rows wants COL:MIN, e.g. 4:0.05, got {spec!r}"
+        ) from exc
+    if ref.ndim < 3 or not -ref.shape[-1] <= col < ref.shape[-1]:
+        raise UploaderError(
+            f"--confident-rows {spec}: output shape {ref.shape} has no rows x channels layout "
+            f"with score column {col}"
+        )
+    r = ref.reshape(-1, *ref.shape[-2:])
+    c = cand.reshape(-1, *cand.shape[-2:])
+    ref_rows, cand_rows, counts = [], [], []
+    for a, b in zip(r, c):
+        a = a[np.argsort(-a[:, col], kind="stable")]
+        b = b[np.argsort(-b[:, col], kind="stable")]
+        k = int((a[:, col] >= min_score).sum())
+        counts.append([k, int((b[:, col] >= min_score).sum())])
+        ref_rows.append(a[:k])
+        cand_rows.append(b[:k])
+    ref_k, cand_k = np.concatenate(ref_rows), np.concatenate(cand_rows)
+    out = (
+        summarize(ref_k, cand_k) if len(ref_k) else summarize(np.zeros(1), np.zeros(1))
+    )
+    out.update(
+        {
+            "score_column": col,
+            "min_score": min_score,
+            "rows_compared": int(len(ref_k)),
+            "count_mismatches": sum(1 for k, kc in counts if k != kc),
+        }
+    )
+    return out
+
+
 def emit_inputs(
     ws: Workspace, out: Path, samples: int = 16, seed: int = DEFAULT_SEED
 ) -> dict[str, Any]:
     import numpy as np
 
-    batch = build_inputs(_input_shape(ws.onnx), samples, seed, None)
+    norm = manifest_normalization(ws)
+    batch = build_inputs(_input_shape(ws.onnx), samples, seed, None, norm)
     out = Path(out)
     if out.suffix != ".npy":
         out = out.with_name(out.name + ".npy")  # np.save appends it anyway
@@ -134,15 +208,21 @@ def emit_inputs(
     ws.write_evidence(
         "raw_inputs",
         "pass",
-        {"inputs": str(out), "sha256": sha256_file(out), "seed": seed,
-         "shape": list(batch.shape)},
+        {
+            "inputs": str(out),
+            "sha256": sha256_file(out),
+            "seed": seed,
+            "shape": list(batch.shape),
+            "normalization": norm,
+        },
     )
     return {
         "result": "pass",
         "inputs": str(out),
         "shape": list(batch.shape),
         "seed": seed,
-        "next": "run the source model on each inputs[i][None] and np.save the stacked outputs, "
+        "next": "run the source model on the inputs (in one batch or one row at a time) and np.save the "
+        "outputs stacked in input order, "
         "then `parity raw --reference-outputs outputs.npy --input-npy "
         + str(out)
         + "`",
@@ -161,6 +241,7 @@ def parity_raw(
     seed: int = DEFAULT_SEED,
     score_channels: str | None = None,
     score_axis: int = -1,
+    confident_rows: str | None = None,
     max_abs_delta: float = DEFAULT_MAX_ABS,
     min_cosine: float = DEFAULT_MIN_COSINE,
 ) -> dict[str, Any]:
@@ -188,7 +269,8 @@ def parity_raw(
             "--reference-outputs needs the --input-npy the outputs were computed on"
         )
 
-    batch = build_inputs(_input_shape(ws.onnx), samples, seed, input_npy)
+    norm = manifest_normalization(ws)
+    batch = build_inputs(_input_shape(ws.onnx), samples, seed, input_npy, norm)
     npy_seed, npy_sha, input_source = None, None, "seeded_uniform"
     if input_npy:
         npy_sha = sha256_file(Path(input_npy))
@@ -232,6 +314,20 @@ def parity_raw(
         )
     groups = {"all_channels": summarize(ref, cand)}
     errors: list[str] = []
+    if score_channels and confident_rows:
+        raise UploaderError("give --score-channels or --confident-rows, not both")
+    if confident_rows:
+        g = groups["confident_rows"] = _confident_rows(ref, cand, confident_rows)
+        if g["rows_compared"] == 0:
+            errors.append(
+                f"no reference row scores >= {g['min_score']}: nothing was compared; use real "
+                "preprocessed images (--input-npy) or a lower MIN"
+            )
+        if g["count_mismatches"]:
+            errors.append(
+                f"{g['count_mismatches']} sample(s) have a different number of rows scoring "
+                f">= {g['min_score']} in the converted model"
+            )
     if score_channels:
         start, end = (int(v) for v in score_channels.split(":"))
         if not -ref.ndim < score_axis < ref.ndim or score_axis == 0:
@@ -249,7 +345,10 @@ def parity_raw(
             np.take(ref, idx, axis=score_axis), np.take(cand, idx, axis=score_axis)
         )
         groups["score_channels"]["axis"] = score_axis
-    target = groups.get("score_channels", groups["all_channels"])
+    applied_to = next(
+        (k for k in ("confident_rows", "score_channels") if k in groups), "all_channels"
+    )
+    target = groups[applied_to]
     if target["reference_peak_magnitude"] == 0.0:
         # e.g. an NMS-in-graph detector on noise returns no boxes: both sides are all zeros,
         # so a broken conversion would "pass" too.
@@ -265,16 +364,19 @@ def parity_raw(
         "gate": "raw_tensor_conversion_parity",
         "source": label,
         "target": f"onnx:{ws.onnx.name}",
+        "onnx_sha256": sha256_file(ws.onnx),
         "samples": int(len(batch)),
         "input_shape": list(batch.shape[1:]),
         "seed": npy_seed if input_npy else seed,
         "input_source": input_source,
+        "input_normalization": None if input_npy else norm,
         "input_sha256": npy_sha,
-        "output_shape": list(ref.shape[1:]),
+        "model_output_shape": list(ref.shape[1:]),
+        "compared_shape": list(ref.shape),
         "thresholds": {
             "max_abs_delta": max_abs_delta,
             "min_cosine_similarity": min_cosine,
-            "applied_to": "score_channels" if score_channels else "all_channels",
+            "applied_to": applied_to,
         },
         "errors": errors,
         "measurements": groups,
@@ -295,6 +397,16 @@ def _iou(a: list[float], b: list[float]) -> float:
     return inter / union if union > 0 else 0.0
 
 
+def norm_label(label: str) -> str:
+    """Label spelling that ignores case and `_`/`-`/space differences (`red_deer` == `Red deer`)."""
+    return " ".join(re.split(r"[\s_\-]+", str(label).strip().casefold()))
+
+
+def _norm_keys(probs: dict[str, float]) -> dict[str, float]:
+    out = {norm_label(k): v for k, v in probs.items()}
+    return out if len(out) == len(probs) else probs
+
+
 def compare_detections(
     ref: list[dict], got: list[dict], threshold: float, boundary: float
 ) -> dict[str, Any]:
@@ -305,7 +417,7 @@ def compare_detections(
             (_iou(r["bbox"], g["bbox"]), i, j)
             for i, r in enumerate(ref)
             for j, g in enumerate(got)
-            if r["label"] == g["label"]
+            if norm_label(r["label"]) == norm_label(g["label"])
         ),
         reverse=True,
     )
@@ -472,6 +584,13 @@ def parity_pipeline(
         errors.append(
             f"reference has no entry for {len(missing)} files, e.g. {missing[:3]}"
         )
+    # Every image sent must come back from the engine; a dropped image is not a pass.
+    sent = {str(f.relative_to(images)) for f in files}
+    dropped = sorted(sent - set(got))
+    if dropped:
+        errors.append(
+            f"engine returned no record for {len(dropped)} images, e.g. {dropped[:3]}"
+        )
     for name in sorted(set(got) & set(ref)):
         r, g = ref[name], got[name]
         if task == "detector":
@@ -491,11 +610,18 @@ def parity_pipeline(
                 errors.append(f"{name}: embedding shape {a.shape} vs {b.shape}")
                 cmp = {"cosine": None}
             else:
-                cos = float(a @ b / (np.linalg.norm(a) * np.linalg.norm(b)))
-                cmp = {"cosine": cos}
-                if cos < min_cosine:
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    cos = float(a @ b / (np.linalg.norm(a) * np.linalg.norm(b)))
+                # A zero or NaN embedding gives a NaN cosine, which `cos < min` would let pass.
+                cmp = {"cosine": cos if np.isfinite(cos) else None}
+                if not np.isfinite(cos) or cos < min_cosine:
                     errors.append(f"{name}: cosine {cos:.5f} < {min_cosine}")
         per_file[name] = cmp
+
+    if not per_file:
+        errors.append(
+            "no image was compared: the engine and the reference share no file"
+        )
 
     summary: dict[str, Any] = {"files": len(per_file)}
     if task == "detector":
@@ -527,8 +653,13 @@ def parity_pipeline(
             mean_cosine=sum(coss) / len(coss) if coss else None,
         )
 
+    # A comparison against a hosted zoo bundle is a duplicate check, not the parity gate:
+    # keep its evidence apart so it never replaces the upstream comparison.
+    stage = "parity_zoo_compare" if reference_bundle else "parity_pipeline"
     # Reference bundle that travels with the submission: predictions + hashes, never the images.
-    ref_dir = ws.evidence_dir / "parity_reference"
+    ref_dir = ws.evidence_dir / (
+        "parity_zoo_compare" if reference_bundle else "parity_reference"
+    )
     ref_dir.mkdir(parents=True, exist_ok=True)
     ref_path = ref_dir / "reference_predictions.json"
     ref_path.write_text(
@@ -564,9 +695,15 @@ def parity_pipeline(
         "decision_band_files": band,
         "decision": decision,
         "per_file": per_file,
+        "onnx_sha256": sha256_file(ws.onnx) if ws.onnx.is_file() else None,
     }
-    ws.write_evidence("parity_pipeline", result, data)
-    out = {"result": result, "summary": summary, "errors": errors[:20]}
+    ws.write_evidence(stage, result, data)
+    out = {
+        "result": result,
+        "evidence": stage,
+        "summary": summary,
+        "errors": errors[:20],
+    }
     if band:
         out["decision_band_files"] = band
         out["decision"] = decision
@@ -574,7 +711,7 @@ def parity_pipeline(
         out["next"] = (
             f"max prob delta is above {prob_tol} but within {prob_ceiling}. Ask the submitter: "
             "investigate further (preprocessing, interpolation, opset) to reach "
-            f"{prob_tol}, or accept and re-run with --accept-delta \"<their reason>\""
+            f'{prob_tol}, or accept and re-run with --accept-delta "<their reason>"'
         )
     return out
 
@@ -586,6 +723,7 @@ def compare_classification(
     prob_ceiling: float = CLASSIFIER_PROB_CEILING,
 ) -> tuple[dict[str, Any], list[str]]:
     """Compare one image's class probabilities. Errors are hard failures; the band needs a decision."""
+    ref, got = _norm_keys(ref), _norm_keys(got)
     labels = set(ref) | set(got)
     deltas = {lab: abs(ref.get(lab, 0.0) - got.get(lab, 0.0)) for lab in labels}
     rt = sorted(ref.items(), key=lambda kv: -kv[1])
@@ -600,6 +738,11 @@ def compare_classification(
         "near_tie": near_tie,
         "max_prob_delta": worst,
         "in_decision_band": prob_tol < worst <= prob_ceiling,
+        # enough to diagnose a delta without re-running both pipelines
+        "reference_top5": {k: round(v, 6) for k, v in rt[:5]},
+        "engine_top5": {
+            k: round(v, 6) for k, v in sorted(got.items(), key=lambda kv: -kv[1])[:5]
+        },
     }
     errors = []
     if top_r != top_g and not near_tie:

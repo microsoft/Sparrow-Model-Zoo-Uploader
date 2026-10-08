@@ -76,8 +76,10 @@ INIT = [
 
 @pytest.fixture
 def initialised(run):
-    def _init(model_id="tiny-cls", task="classifier", domain="general"):
-        rc, out = run("init", "--model-id", model_id, "--task", task, "--domain", domain, *INIT)
+    def _init(model_id="tiny-cls", task="classifier", domain="general", extra=()):
+        rc, out = run(
+            "init", "--model-id", model_id, "--task", task, "--domain", domain, *INIT, *extra
+        )
         assert rc == 0, out
         return model_id
     return _init

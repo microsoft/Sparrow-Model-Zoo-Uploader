@@ -33,7 +33,7 @@ flowchart LR
     D -- pass --> E[5. Package<br/>lint · package · verify<br/>zip with evidence and<br/>draft catalogue row]
     D -- classifier delta 0.01–0.05:<br/>you accept with a reason --> E
     E --> F([6. Zoo review<br/>rights checked,<br/>model set to hosted])
-    A -. not an image model or<br/>licence not redistributable .-> X([Stop or<br/>engine-gap report])
+    A -. not an image model or<br/>licence unknown .-> X([Stop or<br/>engine-gap report])
     B -. no engine contract fits .-> X
     D -. fail .-> B
     E -. blocking lint item .-> C
@@ -52,8 +52,8 @@ fixed at its cause; the skill forbids loosening a threshold to get a pass.
   `sparrow-engine-cpu-0.1.30-<platform>.tar.gz` from the
   [v0.1.30 release](https://github.com/microsoft/SPARROW-Engine/releases/tag/v0.1.30), extract
   it and put its `bin/` on `PATH`.
-- A model whose **weights** licence allows redistribution. Non-commercial licences are not
-  accepted by the zoo.
+- The licence of your model **weights** (any licence; it is recorded in the bundle and the zoo
+  reviewer decides how to host the model).
 - 10–50 of your own images the model should work on (recommended; see the guide).
 
 ## Install
@@ -70,6 +70,10 @@ Models whose source is PyTorch or Ultralytics need the optional extra for the ra
 ```bash
 uv tool install 'sparrow-model-uploader[ultralytics] @ git+https://github.com/microsoft/Sparrow-Model-Zoo-Uploader'
 ```
+
+The extra installs Ultralytics (AGPL-3.0) into your environment for conversion only. It does not
+change the uploader's MIT licence. A model converted with it gets `AGPL-3.0` in its bundle's
+framework licences.
 
 The agent skill, pick one:
 
@@ -148,8 +152,24 @@ It never contains your parity images, your email address, or local file paths.
 
 ## Submitting
 
-Uploading the package for review is not automated yet. Keep the zip; submission instructions
-will be added here. See the [submission guide](docs/user-guide.md) for what the reviewer checks.
+`submit` opens a pull request with the zip on the Hugging Face repository
+[`ai-for-good-lab/sparrow-model-zoo-submission`](https://huggingface.co/ai-for-good-lab/sparrow-model-zoo-submission).
+It needs the `[submit]` extra and a Hugging Face **Write** token
+([settings/tokens](https://huggingface.co/settings/tokens)) in `HF_TOKEN` or from `hf auth login`.
+
+```bash
+uv tool install 'sparrow-model-uploader[submit] @ git+https://github.com/microsoft/Sparrow-Model-Zoo-Uploader'
+sparrow-uploader submit --model-id my-detector --dry-run          # what would be uploaded
+sparrow-uploader submit --model-id my-detector --confirm-public   # open the pull request
+sparrow-uploader status --model-id my-detector                    # review state and comments
+```
+
+The pull request and its files are **public** as soon as they are uploaded, before any review.
+Submit only weights you are allowed to redistribute. Pull requests are never merged: the zoo
+admin reviews the submission, publishes approved models through the zoo's release process,
+comments the decision and closes the pull request. To answer review comments, fix the bundle,
+re-run `package`, then `submit --pr <number> --confirm-public` to push a new revision to the same
+pull request. See the [submission guide](docs/user-guide.md) for what the reviewer checks.
 
 ## Contributing
 

@@ -5,20 +5,27 @@ from conftest import make_classifier, make_identity
 from sparrow_uploader.intake import check_license
 
 
-@pytest.mark.parametrize("spdx", ["MIT", "Apache-2.0", "CC-BY-4.0", "AGPL-3.0"])
-def test_licence_allowed(spdx):
+@pytest.mark.parametrize(
+    "spdx,status",
+    [("MIT", "allowed"), ("AGPL-3.0", "allowed"), ("CC-BY-NC-4.0", "prohibited"),
+     ("CC-BY-NC-SA-4.0", "prohibited"), ("research-only", "prohibited"),
+     ("proprietary", "unverified"), ("WTFPL-ish", "unverified")],
+)
+def test_any_stated_licence_is_accepted(spdx, status):
+    from sparrow_uploader.compliance import commercial_use_status
+
     assert check_license(spdx)[0]
+    assert commercial_use_status(spdx) == status
 
 
-@pytest.mark.parametrize("spdx", ["CC-BY-NC-4.0", "CC-BY-NC-SA-4.0", "proprietary", "WTFPL-ish"])
-def test_licence_blocked(spdx):
-    assert not check_license(spdx)[0]
+def test_licence_must_be_stated():
+    assert not check_license("  ")[0]
 
 
-def test_init_rejects_nc_licence(run):
+def test_init_accepts_nc_licence(run):
     rc, out = run("init", "--model-id", "m1", "--task", "classifier", "--license", "CC-BY-NC-4.0",
-                  "--source", "s", "--developer", "d", "--domain", "camera_trap")
-    assert rc == 1 and out["result"] == "fail"
+                  "--source", "https://example.org/w", "--developer", "d", "--domain", "camera_trap")
+    assert rc == 0 and out["result"] == "pass", out
 
 
 def test_init_requires_domain(run):
