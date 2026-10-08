@@ -334,8 +334,9 @@ def lint(
             )
         if overlap:
             warnings.append(
-                f"catalog already has {m.get('domain')}×{m.get('task')} models in the same family or "
-                f"region: {overlap[:8]} (reviewer will ask for a measured comparison)"
+                f"catalog already has {m.get('domain')}×{m.get('task')} models in the same family "
+                f"(taxonomic family) or the same geo_region: {overlap[:8]}. The reviewer will "
+                "ask how this model compares; give a measured comparison in the card if you can"
             )
 
     # Fill parity section (after evidence checks so the table reflects what was checked)

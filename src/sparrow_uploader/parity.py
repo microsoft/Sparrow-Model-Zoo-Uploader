@@ -211,7 +211,8 @@ def emit_inputs(
         "inputs": str(out),
         "shape": list(batch.shape),
         "seed": seed,
-        "next": "run the source model on each inputs[i][None] and np.save the stacked outputs, "
+        "next": "run the source model on the inputs (in one batch or one row at a time) and np.save the "
+        "outputs stacked in input order, "
         "then `parity raw --reference-outputs outputs.npy --input-npy "
         + str(out)
         + "`",

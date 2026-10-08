@@ -28,10 +28,15 @@ them yet. Treat this as an engine gap.
 
 ## PyTorch (state dict + model class)
 
+`torch.load` on a `.pt`/`.pth`/`.ckpt` file unpickles it, which can run arbitrary code. Load
+upstream weights with `weights_only=True` where possible. If upstream code needs
+`weights_only=False` (common with older checkpoints or Ultralytics), do it only for weights from
+the source the user named, in a separate environment, and say so in the provenance notes.
+
 ```python
 import torch
 model = build_model(...)                       # upstream model class
-model.load_state_dict(torch.load("weights.pth", map_location="cpu"))
+model.load_state_dict(torch.load("weights.pth", map_location="cpu", weights_only=True))
 model.eval()
 dummy = torch.randn(1, 3, H, W)
 torch.onnx.export(

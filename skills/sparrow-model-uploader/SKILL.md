@@ -105,7 +105,10 @@ developed the model (e.g. MegaDetector); the catalogue entry for the upstream sa
 the original weight files you downloaded, so the reviewer can match them to the source.
 `--framework-licenses` lists the SPDX ids of code compiled into the ONNX graph under another
 licence than the weights (e.g. an AGPL wrapper). Restrictions implied by the licence (attribution, share-alike, copyleft) are
-added automatically; `--restrictions` adds others the licence text states.
+added automatically; `--restrictions` adds others the licence text states. Use the zoo's
+vocabulary where it fits: `attribution`, `sharealike`, `copyleft`, `source_offer`,
+`non_commercial`, `no_derivatives`; other values (e.g. `no_military`) are kept as written and
+read by the reviewer.
 
 If the user has no images, run `init` without `--parity-data`. The submission is then marked
 as lower confidence. Ask again before packaging (S12).
@@ -249,6 +252,12 @@ an id collides with an existing entry, download that hosted bundle
 and run the `--reference-bundle` comparison. If the predictions match, the weights are already in
 the zoo: tell the user and do not submit a duplicate unless they confirm it adds something (state
 what in the card).
+
+To get a hosted bundle: read `[zenodo] record` and the entry's `domain`, `task` and `id` from the
+catalog (`https://raw.githubusercontent.com/microsoft/SPARROW-Engine/main/sparrow-engine/scripts/catalog.toml`),
+download `https://zenodo.org/records/<record>/files/<domain>__<task>__<id>.zip?download=1`, and
+unzip it; it unpacks to `<id>/`. Pass that folder (or its parent) as
+`--reference-bundle`. Entries with `hosting_status = "link_only"` have no bundle.
 
 Gates are per task (`references/parity-gates.md`). Detector boxes that differ only near the
 confidence threshold are reported but do not block. If S9 passed and S10 fails, the
