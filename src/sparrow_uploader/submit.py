@@ -141,8 +141,11 @@ def submit(
         (folder / "submission.json").write_text(
             json.dumps(sub, indent=2) + "\n", encoding="utf-8"
         )
+        # Front matter stops Hugging Face's "missing yaml metadata" warning on upload.
         (folder / "README.md").write_text(
-            _readme(sub, zpath.name, zip_sha), encoding="utf-8"
+            "---\ntags:\n- sparrow-submission\n---\n"
+            + _readme(sub, zpath.name, zip_sha),
+            encoding="utf-8",
         )
         kwargs: dict[str, Any] = {
             "repo_id": repo,
@@ -213,7 +216,7 @@ def status(
         "open": "waiting for review, or changes were requested in the comments",
         "closed": "reviewed and closed: read the last comment for the decision",
         "merged": "merged (unexpected: submissions are never merged)",
-        "draft": "draft pull request",
+        "draft": "waiting for review (pull requests opened from code start as draft on Hugging Face)",
     }.get(state, "unknown")
     return {
         "result": "pass",
