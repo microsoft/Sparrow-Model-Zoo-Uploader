@@ -9,6 +9,7 @@ from typing import Any
 
 from . import __version__
 from . import capabilities as caps
+from .compliance import commercial_use_status
 from .workspace import UploaderError, Workspace, sha256_file
 
 
@@ -126,8 +127,7 @@ def render_manifest(
         f"family = {_toml_list(family)}",
         'status = "candidate"',
         f"license = {_q(prov['license'])}",
-        # intake admits only licences that allow commercial use
-        "commercial_use = true",
+        f"commercial_use = {'true' if commercial_use_status(prov['license']) == 'allowed' else 'false'}",
         f"geo_scope = {_q(geo_scope)}",
         f"geo_regions = {_toml_list(geo_regions)}",
         f"reference = {_q(prov['reference'])}",

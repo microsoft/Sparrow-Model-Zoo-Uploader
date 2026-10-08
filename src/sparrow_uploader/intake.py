@@ -3,69 +3,36 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any
 
 from . import capabilities as caps
-from .compliance import file_entry, is_http_url, license_restrictions
+from .compliance import (
+    ULTRALYTICS_LICENSE,
+    commercial_use_status,
+    file_entry,
+    is_http_url,
+    license_restrictions,
+    uses_ultralytics,
+)
 from .workspace import UploaderError, Workspace, now_iso, sha256_file
 
-# SPDX ids whose terms permit redistribution and commercial use of weights.
-LICENSE_ALLOW = {
-    "MIT",
-    "Apache-2.0",
-    "BSD-2-Clause",
-    "BSD-3-Clause",
-    "ISC",
-    "Unlicense",
-    "CC0-1.0",
-    "CC-BY-4.0",
-    "CC-BY-SA-4.0",
-    "MPL-2.0",
-    "GPL-3.0",
-    "GPL-3.0-only",
-    "GPL-3.0-or-later",
-    "AGPL-3.0",
-    "AGPL-3.0-only",
-    "AGPL-3.0-or-later",
-    "LGPL-3.0",
-    "LGPL-3.0-only",
-    "LGPL-3.0-or-later",
-    "OpenRAIL",
-    "OpenRAIL-M",
-}
-_BLOCK_PATTERNS = [
-    (re.compile(r"\bNC\b|non[-_ ]?commercial", re.I), "non-commercial terms"),
-    (
-        re.compile(r"\bND\b|no[-_ ]?deriv", re.I),
-        "no-derivatives terms (conversion to ONNX is a derivative)",
-    ),
-    (
-        re.compile(
-            r"^(proprietary|unknown|none|unlicensed|other)$|all rights reserved|research[-_ ]only",
-            re.I,
-        ),
-        "no redistribution grant",
-    ),
-]
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
 
 
 def check_license(spdx: str) -> tuple[bool, str]:
+    """Any stated licence is accepted; the uploader code is MIT and the weights licence only
+    describes the output bundle. Returns (stated, note) where note gives the commercial status."""
     s = spdx.strip()
-    for pat, why in _BLOCK_PATTERNS:
-        if pat.search(s):
-            return (
-                False,
-                f"licence {s!r} blocked: {why}; the zoo only admits redistributable weights",
-            )
-    if s in LICENSE_ALLOW:
-        return True, f"licence {s!r} permits redistribution"
-    return False, (
-        f"licence {s!r} is not on the allowlist; use an SPDX id such as MIT, Apache-2.0, BSD-3-Clause, "
-        "CC-BY-4.0 or AGPL-3.0. If the licence really permits redistribution, ask the zoo admin first."
-    )
+    if not s:
+        return False, "--license is required: the SPDX id (or name) of the weights licence"
+    status = commercial_use_status(s)
+    note = {
+        "allowed": "commercial use allowed",
+        "prohibited": "commercial use prohibited (commercial_use = false)",
+        "unverified": "not a licence the uploader knows; the zoo admin verifies its terms",
+    }[status]
+    return True, f"licence {s!r}: {note}"
 
 
 def list_images(directory: Path) -> list[Path]:
@@ -104,6 +71,7 @@ def init(
         )
     ok, why = check_license(license_id)
     errors = [] if ok else [why]
+    framework_licenses = list(framework_licenses or [])
     if not developer.strip():
         errors.append("--developer is required (who trained and published the weights)")
     if not source.strip():
@@ -122,6 +90,14 @@ def init(
         warnings.append(
             "no --license-url: using --source as the licence URL; pass the URL of the LICENSE file "
             "at the pinned revision if it differs"
+        )
+    if ok and commercial_use_status(license_id) != "allowed":
+        warnings.append(why)
+    if uses_ultralytics(framework) and ULTRALYTICS_LICENSE not in framework_licenses:
+        framework_licenses.append(ULTRALYTICS_LICENSE)
+        warnings.append(
+            "Ultralytics is in the conversion toolchain: AGPL-3.0 is recorded in "
+            "framework_licenses of the bundle (it does not affect this tool's MIT licence)"
         )
     weights: list[dict[str, Any]] = []
     for w in source_weights or []:
@@ -186,7 +162,7 @@ def init(
         "source_revision": source_revision,
         "source_weights": weights,
         "display_name": display_name,
-        "framework_licenses": framework_licenses or [],
+        "framework_licenses": framework_licenses,
         "restrictions": list(
             dict.fromkeys(license_restrictions(license_id) + (restrictions or []))
         ),

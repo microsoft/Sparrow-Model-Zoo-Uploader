@@ -21,16 +21,21 @@ Ultralytics, TensorFlow, or an existing ONNX file) to ONNX.
 
 ### Licence and rights
 
-The zoo hosts weights only when their licence allows redistribution of a converted copy.
+The uploader is MIT-licensed. Your model keeps its own licence, and that licence describes
+only the submission bundle. Any stated weights licence is accepted and recorded as given:
 
-- **Accepted:** permissive and attribution licences (MIT, Apache-2.0, BSD, CC-BY-4.0 and
-  similar), share-alike and copyleft licences (CC-BY-SA, GPL, AGPL, LGPL, MPL) and OpenRAIL.
-  Conditions the licence implies (attribution, share-alike, copyleft) are recorded as
-  restrictions automatically; add others the licence text states with `--restrictions`.
-- **Not accepted:** non-commercial terms (for example CC-BY-NC), no-derivatives terms
-  (converting to ONNX is a derivative), "research only", proprietary, or no stated licence.
-- If code under another licence is compiled into the ONNX graph (for example an AGPL wrapper),
-  name it with `--framework-licenses`.
+- Permissive and attribution licences (MIT, Apache-2.0, BSD, CC-BY-4.0 and similar) are
+  recorded with `commercial_use = true`.
+- Non-commercial terms (for example CC-BY-NC, "research only") are recorded with
+  `commercial_use = false` and a `non_commercial` restriction.
+- Licences the uploader does not know (custom or proprietary terms) are recorded with
+  `commercial_use_status = unverified`; the zoo reviewer reads the licence text.
+- Conditions the licence implies (attribution, share-alike, copyleft, no-derivatives) are
+  recorded as restrictions automatically; add others the licence text states with
+  `--restrictions`. The zoo reviewer decides whether and how the weights are hosted.
+- If code under another licence is compiled into the ONNX graph, name it with
+  `--framework-licenses`. When the conversion uses Ultralytics (AGPL-3.0), `init` adds
+  `AGPL-3.0` to the bundle's framework licences automatically.
 
 You will be asked for: the weights licence (SPDX id) and a URL to its text, the rights holder,
 the developer, a citation or reference, the URL where the original weights are published, and
@@ -143,7 +148,7 @@ step when it is available. On review:
 
 | Situation | What happens |
 |---|---|
-| Licence unknown, non-commercial, no-derivatives or non-redistributable | The agent stops and explains the zoo policy |
+| You do not know the weights licence | The agent asks you to find it; it never guesses one |
 | Audio or video model | The agent stops before downloading weights |
 | Three failed conversion attempts, or no engine contract fits | The agent writes `engine_gap_report.md`; with your consent it opens an issue on Sparrow Engine |
 | A gate fails | The agent fixes the cause and re-runs; thresholds are not changed |

@@ -11,7 +11,7 @@ from typing import Any
 
 from . import __version__
 from .capabilities import ENGINE_VERSION
-from .compliance import SOURCE_ARTIFACT, rights_fields, write_compliance
+from .compliance import SOURCE_ARTIFACT, approval_fields, rights_fields, write_compliance
 from .doctor import find_spe, spe_version
 from .workspace import UploaderError, Workspace, now_iso, sha256_file
 
@@ -78,11 +78,6 @@ REVIEW_REQUIRED = {
         "metadata-only and rejects this package's weights until an admin verifies "
         "the licence and sets these fields."
     ),
-    "set_on_approval": {
-        "hosting_status": "hosted",
-        "rights_status": "verified",
-        "conversion_permission": "verified",
-    },
 }
 
 
@@ -180,7 +175,7 @@ def package(
         "submitter_hf_username": hf_username or prov.get("submitter"),
         "lint_result": lint_ev["result"],
         "catalog_row_draft": draft_catalog_row(manifest, prov),
-        "review_required": REVIEW_REQUIRED,
+        "review_required": {**REVIEW_REQUIRED, "set_on_approval": approval_fields(prov)},
         "provenance": {k: v for k, v in prov.items() if k != "parity_data"}
         | {
             "parity_data": {

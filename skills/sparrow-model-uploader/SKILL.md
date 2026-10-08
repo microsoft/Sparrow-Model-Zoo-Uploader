@@ -74,9 +74,13 @@ Ask, in one message, for:
   citation or paper URL, a human-readable model name, and a one-line description;
 - their Hugging Face username (used in the submission; no email address is collected).
 
-**STOP** if the weights licence is unknown, non-commercial (`-NC`), "research only", or
-otherwise does not allow redistribution. The zoo cannot accept such models. Explain this to the
-user; do not continue.
+Any weights licence the user states is accepted: it describes the output bundle only, and the
+zoo admin decides how to host it. Record the licence exactly as the user gives it. Non-commercial
+terms (`-NC`, "research only") set `commercial_use = false`; a licence the uploader does not know
+is recorded with `commercial_use_status = unverified`. If the user does not know the licence,
+ask them to find it; do not guess. If you convert with Ultralytics, pass a `--framework` that
+names it: init then records `AGPL-3.0` in the bundle's `framework_licenses`. That concerns the
+converted model only, not the uploader's own MIT licence.
 
 ### S2 — Parity data (ask the user)
 
@@ -303,7 +307,7 @@ is not an engine gap (rule 6).
 
 | Situation | Action |
 |---|---|
-| Weights licence unknown, non-commercial or non-redistributable | Stop; explain the zoo policy |
+| Weights licence unknown to the user | Ask them to find it; never guess one |
 | Audio model | Stop before downloading; this uploader version does not handle audio (the engine does) |
 | Video model | Stop before downloading; offer the engine-gap report |
 | Classifier delta in 0.01–0.05 (`needs_decision`) | Try interpolation options, then ask the user to investigate or accept |

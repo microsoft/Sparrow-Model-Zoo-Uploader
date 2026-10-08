@@ -33,7 +33,7 @@ flowchart LR
     D -- pass --> E[5. Package<br/>lint · package · verify<br/>zip with evidence and<br/>draft catalogue row]
     D -- classifier delta 0.01–0.05:<br/>you accept with a reason --> E
     E --> F([6. Zoo review<br/>rights checked,<br/>model set to hosted])
-    A -. not an image model or<br/>licence not redistributable .-> X([Stop or<br/>engine-gap report])
+    A -. not an image model or<br/>licence unknown .-> X([Stop or<br/>engine-gap report])
     B -. no engine contract fits .-> X
     D -. fail .-> B
     E -. blocking lint item .-> C
@@ -52,8 +52,8 @@ fixed at its cause; the skill forbids loosening a threshold to get a pass.
   `sparrow-engine-cpu-0.1.30-<platform>.tar.gz` from the
   [v0.1.30 release](https://github.com/microsoft/SPARROW-Engine/releases/tag/v0.1.30), extract
   it and put its `bin/` on `PATH`.
-- A model whose **weights** licence allows redistribution. Non-commercial licences are not
-  accepted by the zoo.
+- The licence of your model **weights** (any licence; it is recorded in the bundle and the zoo
+  reviewer decides how to host the model).
 - 10–50 of your own images the model should work on (recommended; see the guide).
 
 ## Install
@@ -70,6 +70,10 @@ Models whose source is PyTorch or Ultralytics need the optional extra for the ra
 ```bash
 uv tool install 'sparrow-model-uploader[ultralytics] @ git+https://github.com/microsoft/Sparrow-Model-Zoo-Uploader'
 ```
+
+The extra installs Ultralytics (AGPL-3.0) into your environment for conversion only. It does not
+change the uploader's MIT licence. A model converted with it gets `AGPL-3.0` in its bundle's
+framework licences.
 
 The agent skill, pick one:
 
