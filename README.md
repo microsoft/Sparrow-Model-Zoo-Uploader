@@ -26,37 +26,21 @@ For what to prepare and how review works, read the [submission guide](docs/user-
 ## How it works
 
 ```mermaid
-flowchart TD
-    A([You ask your agent to submit a model]) --> B[doctor<br/>check Python, uv, spe engine]
-    B --> C{Image model with a<br/>redistributable licence?}
-    C -- no --> X1([Stop: explain the zoo policy,<br/>or write an engine-gap report])
-    C -- yes --> D[init<br/>intake: licence, source, rights holder,<br/>developer, your parity images]
-    D --> E[Agent converts the model to ONNX<br/>in its own environment]
-    E --> F[validate<br/>ONNX checker, onnxruntime CPU,<br/>opset, no custom ops]
-    F --> G[fit<br/>match outputs to an engine contract]
-    G -- no contract fits --> X2([Engine-gap report<br/>optional issue on Sparrow Engine])
-    G --> H[scaffold<br/>manifest.toml, labels, model card template]
-    H --> I[You and the agent fill in MODEL_CARD.md]
-    I --> J[smoke<br/>run the bundle in the real spe engine]
-    J --> K[parity raw<br/>same tensors through original and ONNX]
-    K --> L[parity pipeline<br/>original inference code vs spe<br/>on your images]
-    L -- classifier delta 0.01 to 0.05 --> M{You decide:<br/>investigate or accept}
-    M -- accept with reason --> N
-    L --> N[lint<br/>bundle files, card, licence, zoo catalogue;<br/>writes ATTRIBUTION, CONVERSION, SOURCE]
-    N --> O[package<br/>submission zip with evidence<br/>and draft catalogue row]
-    O --> P[verify<br/>hashes and archive safety]
-    P --> Q([Hand-off: zip, results table, warnings])
-    Q --> R[Zoo reviewer verifies rights<br/>and sets the model to hosted]
-
-    F -. fail .-> E
-    J -. fail .-> H
-    K -. fail .-> E
-    L -. fail: fix preprocessing flags .-> H
-    N -. blocking item .-> I
+flowchart LR
+    A[1. Check<br/>doctor · init<br/>tools, licence, source, rights,<br/>your parity images] --> B[2. Convert<br/>agent exports ONNX<br/>validate · fit<br/>checker, CPU run, engine contract]
+    B --> C[3. Bundle<br/>scaffold · model card · smoke<br/>manifest, labels, run in spe]
+    C --> D{4. Parity<br/>raw tensors, then<br/>original code vs spe}
+    D -- pass --> E[5. Package<br/>lint · package · verify<br/>zip with evidence and<br/>draft catalogue row]
+    D -- classifier delta 0.01–0.05:<br/>you accept with a reason --> E
+    E --> F([6. Zoo review<br/>rights checked,<br/>model set to hosted])
+    A -. not an image model or<br/>licence not redistributable .-> X([Stop or<br/>engine-gap report])
+    B -. no engine contract fits .-> X
+    D -. fail .-> B
+    E -. blocking lint item .-> C
 ```
 
 Each step writes `.sparrow-upload/<model_id>/evidence/<step>.json` with a result of `pass`,
-`warn`, `fail` or `skipped`. A dotted arrow is the usual fix when a step fails. A failed gate is
+`warn`, `fail` or `skipped`. Dotted arrows show early exits and where the agent goes back when a check fails. A failed gate is
 fixed at its cause; the skill forbids loosening a threshold to get a pass.
 
 ## Requirements
