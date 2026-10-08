@@ -1,0 +1,12 @@
+{
+  "name": "sparrow-model-uploader",
+  "owner": { "name": "Microsoft AI for Good Lab" },
+  "plugins": [
+    {
+      "name": "sparrow-model-uploader",
+      "source": "./",
+      "description": "Convert, validate and package an image model for submission to the Sparrow Engine model zoo.",
+      "version": "0.1.0"
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "name": "sparrow-model-uploader",
+  "version": "0.1.0",
+  "description": "Convert, validate and package an image model for submission to the Sparrow Engine model zoo."
+}
