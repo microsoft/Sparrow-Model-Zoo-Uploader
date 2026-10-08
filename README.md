@@ -152,8 +152,24 @@ It never contains your parity images, your email address, or local file paths.
 
 ## Submitting
 
-Uploading the package for review is not automated yet. Keep the zip; submission instructions
-will be added here. See the [submission guide](docs/user-guide.md) for what the reviewer checks.
+`submit` opens a pull request with the zip on the Hugging Face repository
+[`ai-for-good-lab/sparrow-model-zoo-submission`](https://huggingface.co/ai-for-good-lab/sparrow-model-zoo-submission).
+It needs the `[submit]` extra and a Hugging Face **Write** token
+([settings/tokens](https://huggingface.co/settings/tokens)) in `HF_TOKEN` or from `hf auth login`.
+
+```bash
+uv tool install 'sparrow-model-uploader[submit] @ git+https://github.com/microsoft/Sparrow-Model-Zoo-Uploader'
+sparrow-uploader submit --model-id my-detector --dry-run          # what would be uploaded
+sparrow-uploader submit --model-id my-detector --confirm-public   # open the pull request
+sparrow-uploader status --model-id my-detector                    # review state and comments
+```
+
+The pull request and its files are **public** as soon as they are uploaded, before any review.
+Submit only weights you are allowed to redistribute. Pull requests are never merged: the zoo
+admin reviews the submission, publishes approved models through the zoo's release process,
+comments the decision and closes the pull request. To answer review comments, fix the bundle,
+re-run `package`, then `submit --pr <number> --confirm-public` to push a new revision to the same
+pull request. See the [submission guide](docs/user-guide.md) for what the reviewer checks.
 
 ## Contributing
 

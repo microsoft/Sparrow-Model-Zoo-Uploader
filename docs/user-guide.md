@@ -130,18 +130,30 @@ What never leaves your machine:
 
 The agent asks before anything is uploaded or any issue is opened.
 
-## 4. Review
+## 4. Submission and review
 
-Uploading for review is not automated in this version; the README will describe the submission
-step when it is available. On review:
+`submit --confirm-public` uploads the zip, `submission.json` and a short README to
+`submissions/<model_id>/<timestamp>/` in a new pull request on the Hugging Face repository
+`ai-for-good-lab/sparrow-model-zoo-submission`. You need a Hugging Face Write token. The pull
+request is public from the moment it is opened, so only submit weights you may redistribute.
+`submit --dry-run` shows what would be uploaded without uploading. `status` prints the pull
+request state and its comments. An open pull request is waiting for review or for your changes;
+a closed one has a decision in its last comment. Pull requests are never merged.
+
+To answer a review comment, fix the bundle, re-run `package`, and push a new revision to the same
+pull request with `submit --pr <number> --confirm-public`.
+
+On review:
 
 1. The reviewer re-runs `verify` and reads the evidence files.
 2. The reviewer checks the licence and the source of the weights against `SOURCE.md` and the
    hashes in `SOURCE_ARTIFACT.json`.
 3. On approval the reviewer sets the fields listed in `submission.json` under
-   `review_required`: `hosting_status = "hosted"`, `rights_status = "verified"` and
-   `conversion_permission = "verified"`, and removes the "Unreviewed submission" banner from the
-   model card. Until then the draft entry stays `pending_rights` and the zoo does not host the
+   `review_required.set_on_approval`. For a licence with no conditions these are
+   `hosting_status = "hosted"`, `rights_status = "verified"` and
+   `conversion_permission = "verified"`; for a licence with conditions (non-commercial, no
+   derivatives, share-alike) they are `hosted_restricted`, `conditional` and `conditional`. The
+   reviewer also removes the "Unreviewed submission" banner from the model card. Until then the draft entry stays `pending_rights` and the zoo does not host the
    weights.
 
 ## 5. When something goes wrong

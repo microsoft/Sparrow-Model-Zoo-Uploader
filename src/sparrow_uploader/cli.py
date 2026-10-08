@@ -160,6 +160,26 @@ def cmd_verify(a):
     return verify(Path(a.zip))
 
 
+def cmd_submit(a):
+    from .submit import submit
+
+    return submit(
+        _ws(a),
+        zip_path=a.zip,
+        repo=a.repo,
+        token=a.token,
+        pr=a.pr,
+        confirm_public=a.confirm_public,
+        dry_run=a.dry_run,
+    )
+
+
+def cmd_status(a):
+    from .submit import status
+
+    return status(_ws(a), repo=a.repo, token=a.token, pr=a.pr)
+
+
 def cmd_install_skill(a):
     from .install_skill import install_skill
 
@@ -391,6 +411,29 @@ def build_parser() -> argparse.ArgumentParser:
     sp = stage("package", cmd_package, "build <model_id>-submission.zip")
     sp.add_argument("--out", type=Path)
     sp.add_argument("--hf-username")
+
+    from .submit import SUBMISSION_REPO
+
+    sp = stage(
+        "submit",
+        cmd_submit,
+        "open a pull request with the zip on the Hugging Face submission repo",
+    )
+    sp.add_argument("--zip", type=Path, help="default: the zip from the last `package`")
+    sp.add_argument("--repo", default=SUBMISSION_REPO)
+    sp.add_argument("--token", help="HF Write token (default: $HF_TOKEN)")
+    sp.add_argument("--pr", type=int, help="push a new revision to this existing PR number")
+    sp.add_argument(
+        "--confirm-public",
+        action="store_true",
+        help="the submitter agrees the PR and files are public as soon as they are uploaded",
+    )
+    sp.add_argument("--dry-run", action="store_true", help="show what would be uploaded")
+
+    sp = stage("status", cmd_status, "show the review state and comments of the submission PR")
+    sp.add_argument("--repo", help="default: the repo recorded by `submit`")
+    sp.add_argument("--token", help="HF token (default: $HF_TOKEN; public repos need none)")
+    sp.add_argument("--pr", type=int, help="default: the PR recorded by `submit`")
 
     sp = sub.add_parser(
         "verify", help="check a submission zip (paths, members, hashes)"
