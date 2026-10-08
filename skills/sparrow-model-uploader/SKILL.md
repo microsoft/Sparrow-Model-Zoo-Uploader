@@ -167,6 +167,8 @@ sparrow-uploader scaffold --model-id ID --labels labels.txt --license-file LICEN
 Encoders also take `--embedding-version NAME --embedding-metric cosine` and, for
 `resize_crop`, `--resize-mode shorter_side`. Detectors used as a gate for a classifier take
 `--detector-gate-class animal`.
+`--labels` and `--license-file` must be regular files up to 1 MiB; symlinks are refused (copy
+the real file out of a cloned repo first).
 
 Writes `manifest.toml`, `labels.txt`, `MODEL_CARD.md` and `LICENSE.md` into the bundle. The
 preprocessing flags must match what the upstream code does (S3). `labels.txt` is one class name
@@ -242,7 +244,8 @@ sparrow-uploader parity pipeline --model-id ID --reference reference_predictions
 
 If the model replaces one already served by the engine, also compare against it:
 `--reference-bundle MODEL_DIR --reference-model-id OLD_ID`. That comparison is saved as
-`evidence/parity_zoo_compare.json` and does not replace the upstream comparison, which stays the
+`evidence/parity_zoo_compare.json` (predictions under `evidence/parity_zoo_compare/`) and does
+not replace the upstream comparison, which stays the
 parity gate. If lint reports a zoo entry with the
 same family or developer that is `link_only` (no bundle to compare with), ask the user whether
 this is a replacement, a new version or a separate model, and record the answer in the model card.
@@ -286,6 +289,11 @@ Checks the bundle files, label count, licence text, model card sections and left
 earlier evidence, and the model id against the published zoo catalogue (`--offline` skips the
 catalogue). Fix every blocking item and re-run. Overlap warnings (the zoo already has a model
 for this domain and task) do not block; mention them to the user.
+Lint fails when `manifest.toml` or the smoke/parity evidence records a different `model.onnx`
+sha256 than the current file (re-run `scaffold --force`, smoke and parity), or when the manifest's
+licence, commercial use, domain or developer disagree with `PROVENANCE.json` (re-run
+`scaffold --force` after re-running `init`). It warns when smoke or parity evidence is older than
+`manifest.toml`.
 
 ### S12 — Package
 
@@ -303,7 +311,9 @@ reference predictions and `submission.json` (draft catalogue row with rights fie
 sha256 of every file). The draft row says `hosting_status = "pending_rights"`: only a zoo
 reviewer can verify the rights, and `review_required` lists what they set on approval. Parity images are never
 included. Local paths are replaced by `<workspace>` and `~`. Re-run `package` after any bundle
-change. `verify` re-checks hashes and archive safety.
+change. `package` refuses when smoke or parity evidence failed or was written after `lint.json`
+(re-run `lint`). `verify` re-checks hashes and archive safety (no symlink members, metadata
+capped at 1 MiB) and reports a malformed zip as `"result": "fail"`.
 
 ### S13 — Hand-off
 

@@ -355,6 +355,7 @@ def parity_raw(
         "gate": "raw_tensor_conversion_parity",
         "source": label,
         "target": f"onnx:{ws.onnx.name}",
+        "onnx_sha256": sha256_file(ws.onnx),
         "samples": int(len(batch)),
         "input_shape": list(batch.shape[1:]),
         "seed": npy_seed if input_npy else seed,
@@ -574,6 +575,13 @@ def parity_pipeline(
         errors.append(
             f"reference has no entry for {len(missing)} files, e.g. {missing[:3]}"
         )
+    # Every image sent must come back from the engine; a dropped image is not a pass.
+    sent = {str(f.relative_to(images)) for f in files}
+    dropped = sorted(sent - set(got))
+    if dropped:
+        errors.append(
+            f"engine returned no record for {len(dropped)} images, e.g. {dropped[:3]}"
+        )
     for name in sorted(set(got) & set(ref)):
         r, g = ref[name], got[name]
         if task == "detector":
@@ -593,11 +601,16 @@ def parity_pipeline(
                 errors.append(f"{name}: embedding shape {a.shape} vs {b.shape}")
                 cmp = {"cosine": None}
             else:
-                cos = float(a @ b / (np.linalg.norm(a) * np.linalg.norm(b)))
-                cmp = {"cosine": cos}
-                if cos < min_cosine:
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    cos = float(a @ b / (np.linalg.norm(a) * np.linalg.norm(b)))
+                # A zero or NaN embedding gives a NaN cosine, which `cos < min` would let pass.
+                cmp = {"cosine": cos if np.isfinite(cos) else None}
+                if not np.isfinite(cos) or cos < min_cosine:
                     errors.append(f"{name}: cosine {cos:.5f} < {min_cosine}")
         per_file[name] = cmp
+
+    if not per_file:
+        errors.append("no image was compared: the engine and the reference share no file")
 
     summary: dict[str, Any] = {"files": len(per_file)}
     if task == "detector":
@@ -629,8 +642,13 @@ def parity_pipeline(
             mean_cosine=sum(coss) / len(coss) if coss else None,
         )
 
+    # A comparison against a hosted zoo bundle is a duplicate check, not the parity gate:
+    # keep its evidence apart so it never replaces the upstream comparison.
+    stage = "parity_zoo_compare" if reference_bundle else "parity_pipeline"
     # Reference bundle that travels with the submission: predictions + hashes, never the images.
-    ref_dir = ws.evidence_dir / "parity_reference"
+    ref_dir = ws.evidence_dir / (
+        "parity_zoo_compare" if reference_bundle else "parity_reference"
+    )
     ref_dir.mkdir(parents=True, exist_ok=True)
     ref_path = ref_dir / "reference_predictions.json"
     ref_path.write_text(
@@ -666,10 +684,8 @@ def parity_pipeline(
         "decision_band_files": band,
         "decision": decision,
         "per_file": per_file,
+        "onnx_sha256": sha256_file(ws.onnx) if ws.onnx.is_file() else None,
     }
-    # A comparison against a hosted zoo bundle is a duplicate check, not the parity gate:
-    # keep it apart so it never replaces the upstream comparison.
-    stage = "parity_zoo_compare" if reference_bundle else "parity_pipeline"
     ws.write_evidence(stage, result, data)
     out = {"result": result, "evidence": stage, "summary": summary, "errors": errors[:20]}
     if band:

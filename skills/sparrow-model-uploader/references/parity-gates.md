@@ -30,7 +30,10 @@ The upstream inference code (its own image loading, resize and normalisation) ag
 |---|---|
 | detector | Every detection above the confidence threshold matched (same label, IoU ≥ 0.5). Unmatched detections whose score is within 0.05 of the threshold are reported as diagnostics and do not block; unmatched ones further from the threshold block. Mean IoU, min IoU and max score delta are reported. |
 | classifier | Top-1 label agrees on every image (near-ties excepted). Max probability delta ≤ 0.01 passes. Above 0.01 and up to 0.05 is `needs_decision`: the submitter either investigates further or accepts with `--accept-delta "<reason>"` (result `accepted`, lint warning, reason printed in the card). Above 0.05 fails. |
-| encoder | Cosine similarity ≥ 0.99 on every image. |
+| encoder | Cosine similarity ≥ 0.99 on every image; a zero or NaN embedding fails. |
+
+Every image sent to `spe` must come back with a record, and at least one image must be
+compared; otherwise the run fails.
 
 Why 0.05 for classifiers: when a resize kernel cannot be reproduced exactly, the result can land
 a few hundredths away from the reference even though the weights are identical. SpeciesNet's own

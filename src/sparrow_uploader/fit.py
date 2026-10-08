@@ -58,7 +58,10 @@ def analyse(
             last = out_shapes[0][-1]
             mid = out_shapes[0][1]
             v8_head = isinstance(mid, int) and 4 < mid < last and last > 100
-            if last == 6:
+            # [B, N<=1000, 6] is an end-to-end (NMS) output, not a 1-class YOLOv5 raw head
+            # ([1, 25200, 6]); a symbolic N could be either, so both contracts are offered.
+            e2e_like = last == 6 and isinstance(mid, int) and mid <= 1000
+            if e2e_like or (last == 6 and not isinstance(mid, int)):
                 fits.append(
                     {
                         "postprocess": "yolo_e2e",
@@ -66,8 +69,6 @@ def analyse(
                         "note": "assumes x1,y1,x2,y2,score,class_id in input pixels with NMS applied",
                     }
                 )
-            # [B, N<=1000, 6] is an end-to-end (NMS) output, not a 1-class YOLOv5 raw head
-            e2e_like = last == 6 and isinstance(mid, int) and mid <= 1000
             if last > 5 and not v8_head and not e2e_like:
                 fits.append(
                     {

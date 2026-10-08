@@ -480,6 +480,11 @@ def main(argv: list[str] | None = None) -> int:
     except UploaderError as err:
         print(json.dumps({"result": "error", "error": str(err)}, indent=2))
         return 2
+    except Exception as err:  # noqa: BLE001 - agents parse stdout; never emit a bare traceback
+        # e.g. protobuf DecodeError for a non-ONNX file, TOMLDecodeError for a hand-edited manifest.
+        msg = f"{type(err).__name__}: {err}"
+        print(json.dumps({"result": "error", "error": msg}, indent=2))
+        return 2
     print(json.dumps(out, indent=2, default=str))
     return 1 if out.get("result") in ("fail", "needs_decision") else 0
 

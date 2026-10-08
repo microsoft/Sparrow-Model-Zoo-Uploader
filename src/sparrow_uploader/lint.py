@@ -11,11 +11,12 @@ from typing import Any
 from .smoke import list_models
 from .compliance import (
     GENERATED_FILES,
+    commercial_use_status,
     placeholder_lines,
     provenance_issues,
     write_compliance,
 )
-from .workspace import UploaderError, Workspace
+from .workspace import UploaderError, Workspace, sha256_file
 
 CATALOG_URL = "https://raw.githubusercontent.com/microsoft/SPARROW-Engine/main/sparrow-engine/scripts/catalog.toml"
 REQUIRED_EVIDENCE = (
@@ -159,6 +160,68 @@ def evidence_issue(stage: str, ev: dict | None) -> tuple[str | None, str]:
     return None, ""
 
 
+# Gates that ran the bundle's model.onnx and must be re-run when it or the manifest changes.
+MODEL_EVIDENCE = ("smoke", "parity_raw", "parity_pipeline")
+
+
+def staleness_issues(ws: Workspace, manifest: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Errors when the manifest or gate evidence describes a different model.onnx than the
+    current one; warnings when gate evidence predates manifest.toml (e.g. `scaffold --force`)."""
+    errors: list[str] = []
+    warnings: list[str] = []
+    current = sha256_file(ws.onnx)
+    declared = manifest.get("model", {}).get("onnx_sha256")
+    if declared and declared != current:
+        errors.append(
+            "manifest.toml onnx_sha256 does not match the current model.onnx (the model changed "
+            "after scaffold); re-run `scaffold --force`, then smoke and parity"
+        )
+    manifest_mtime = ws.manifest.stat().st_mtime
+    for stage in MODEL_EVIDENCE:
+        ev = ws.read_evidence(stage)
+        if ev is None or ev.get("result") == "skipped":
+            continue
+        cmd = stage.replace("_", " ")
+        ran_on = ev.get("onnx_sha256")
+        if ran_on and ran_on != current:
+            errors.append(
+                f"evidence/{stage}.json is stale: it was produced for a different model.onnx "
+                f"(sha256 {ran_on[:12]}..., current {current[:12]}...); re-run `{cmd}`"
+            )
+        elif not ran_on:
+            warnings.append(
+                f"evidence/{stage}.json does not record the model.onnx sha256 it ran on; "
+                f"re-run `{cmd}` so the reviewer can tie it to this model"
+            )
+        if ws.evidence_path(stage).stat().st_mtime < manifest_mtime:
+            warnings.append(
+                f"evidence/{stage}.json is older than manifest.toml (scaffold re-ran after it?); "
+                f"re-run `{cmd}` so it checks the current manifest"
+            )
+    return errors, warnings
+
+
+def manifest_provenance_issues(manifest: dict[str, Any], prov: dict[str, Any]) -> list[str]:
+    """Rights/identity fields scaffold copied from PROVENANCE.json that no longer agree with it,
+    e.g. after `init` was re-run with a corrected licence."""
+    m = manifest.get("model", {})
+    expected = {
+        "license": prov.get("license"),
+        "commercial_use": commercial_use_status(prov.get("license", "")) == "allowed",
+        "domain": prov.get("domain"),
+    }
+    found = {k: m.get(k) for k in expected}
+    if "developer" in manifest.get("provenance", {}):
+        expected["developer"] = prov.get("developer")
+        found["developer"] = manifest["provenance"]["developer"]
+    return [
+        f"manifest.toml {k} = {found[k]!r} disagrees with PROVENANCE.json ({expected[k]!r}); "
+        "re-run `scaffold --force` to regenerate the manifest from the current provenance"
+        for k in expected
+        if found[k] is not None and found[k] != expected[k]
+    ]
+
+
 def fill_card_parity(card: Path, md: str) -> bool:
     text = card.read_text(encoding="utf-8")
     if PARITY_BEGIN not in text or PARITY_END not in text:
@@ -199,6 +262,10 @@ def lint(
     m = manifest.get("model", {})
     if m.get("id") != ws.model_id:
         errors.append(f"manifest [model] id {m.get('id')!r} != {ws.model_id!r}")
+    errors += manifest_provenance_issues(manifest, prov)
+    s_err, s_warn = staleness_issues(ws, manifest)
+    errors += s_err
+    warnings += s_warn
 
     # Engine parses the manifest
     try:

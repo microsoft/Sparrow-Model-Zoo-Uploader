@@ -7,6 +7,7 @@ Layout (default root `.sparrow-upload/` in the current directory):
         bundle/<model_id>/{manifest.toml, 1/model.onnx, labels.txt, MODEL_CARD.md, LICENSE.md}
         evidence/<stage>.json
         evidence/parity_reference/{reference_predictions.json, MANIFEST.sha256}
+        evidence/parity_zoo_compare/{...}   (`--reference-bundle` duplicate check; not shipped)
         dist/<model_id>-submission.zip
 
 `bundle/` is a valid `spe --model-dir`: the engine resolves models by flat id.
