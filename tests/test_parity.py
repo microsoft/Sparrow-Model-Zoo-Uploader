@@ -103,6 +103,7 @@ def test_classifier_decision_band():
     ref = {"a": 0.80, "b": 0.15, "c": 0.05}
     cmp, errs = compare_classification(ref, {"a": 0.795, "b": 0.155, "c": 0.05})
     assert not errs and not cmp["in_decision_band"]
+    assert cmp["reference_top5"] == {"a": 0.8, "b": 0.15, "c": 0.05} and "a" in cmp["engine_top5"]
     assert pipeline_verdict(errs, [], None) == ("pass", None)
 
     cmp, errs = compare_classification(ref, {"a": 0.77, "b": 0.18, "c": 0.05})

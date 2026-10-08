@@ -13,7 +13,7 @@ from . import __version__
 from .capabilities import ENGINE_VERSION
 from .compliance import SOURCE_ARTIFACT, approval_fields, rights_fields, write_compliance
 from .doctor import find_spe, spe_version
-from .workspace import UploaderError, Workspace, now_iso, sha256_file
+from .workspace import GateFailed, UploaderError, Workspace, now_iso, sha256_file
 
 SUBMISSION_SCHEMA = "1.0"
 BUNDLE_FILES = (
@@ -121,7 +121,7 @@ def package(
     if lint_ev is None:
         raise UploaderError("run `lint` before `package`")
     if lint_ev["result"] != "pass" and not allow_lint_fail:
-        raise UploaderError(
+        raise GateFailed(
             f"lint result is {lint_ev['result']}; fix the lint errors first: {lint_ev['errors'][:3]}"
         )
     warnings: list[str] = []

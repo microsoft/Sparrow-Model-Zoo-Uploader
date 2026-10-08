@@ -245,3 +245,28 @@ def test_init_records_source_weights_and_rejects_non_url(run, tmp_path):
         "--source", "a citation", "--developer", "Lab", "--domain", "general",
     )
     assert rc == 1 and any("http(s) URL" in e for e in out["errors"])
+
+
+def test_package_refused_by_failed_lint_exits_1(run, initialised, tmp_path):
+    mid, ws = _bundle(run, initialised, tmp_path)
+    ws.write_evidence("lint", "fail", {"errors": ["x"], "warnings": []})
+    rc, out = run("package", "--model-id", mid, "--out", str(tmp_path / "dist"))
+    assert rc == 1 and out["result"] == "fail", out
+
+
+def test_card_input_row_labels_normalization(run, initialised, tmp_path):
+    mid, ws = _bundle(run, initialised, tmp_path)
+    card = (ws.bundle / "MODEL_CARD.md").read_text()
+    assert "normalization: imagenet" in card
+
+
+def test_seeded_inputs_follow_manifest_normalization(run, initialised, tmp_path):
+    import numpy as np
+
+    mid, ws = _bundle(run, initialised, tmp_path)
+    text = ws.manifest.read_text().replace('normalization = "imagenet"', 'normalization = "none"')
+    ws.manifest.write_text(text)
+    rc, out = run("parity", "raw", "--model-id", mid, "--emit-inputs", str(tmp_path / "in.npy"))
+    assert rc == 0, out
+    x = np.load(tmp_path / "in.npy")
+    assert x.max() > 200 and x.min() >= 0

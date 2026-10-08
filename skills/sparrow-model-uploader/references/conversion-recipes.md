@@ -115,7 +115,13 @@ uv run --no-project --python 3.11 --with 'tf2onnx>=1.16' --with 'tensorflow==2.1
 ```
 
 For a Keras `.keras`/`.h5` file, load it and save as SavedModel first
-(`model.export("saved_model_dir")`). TensorFlow models are usually NHWC: either add
+(`model.export("saved_model_dir")`). A legacy Keras 2 `.h5` file (TF ≤ 2.15), especially one
+saved with a `mixed_float16` policy, often does not load in Keras 3 (TF 2.16+): use
+`tensorflow==2.15.1` and `tf.saved_model.save(model, "saved_model_dir")` instead. Rebuild a
+`mixed_float16` model as float32 (same architecture, `model.set_weights(old.get_weights())`)
+before export; the float16 graph can give NaN on CPU. If the last layer applies softmax and the
+manifest postprocessing is `softmax`, set that layer's activation to linear before export so
+softmax is not applied twice (see `engine-contract.md`). TensorFlow models are usually NHWC: either add
 `--inputs-as-nchw input_name:0` to tf2onnx, or put a transpose at the start of the graph.
 
 If tf2onnx reports `Unsupported op XlaCallModule`, the model was saved through JAX/StableHLO.

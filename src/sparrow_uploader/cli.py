@@ -11,7 +11,7 @@ from typing import Any
 
 from . import __version__
 from . import capabilities as caps
-from .workspace import UploaderError, Workspace
+from .workspace import GateFailed, UploaderError, Workspace
 
 
 def _ws(args) -> Workspace:
@@ -467,6 +467,9 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         out: dict[str, Any] = args.fn(args)
+    except GateFailed as err:
+        print(json.dumps({"result": "fail", "error": str(err)}, indent=2))
+        return 1
     except UploaderError as err:
         print(json.dumps({"result": "error", "error": str(err)}, indent=2))
         return 2

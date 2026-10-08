@@ -31,7 +31,24 @@ def _input_shape(onnx_path: Path) -> list[int]:
     return [1] + [int(d) for d in shape[1:]]
 
 
-def build_inputs(shape: list[int], samples: int, seed: int, input_npy: Path | None):
+IMAGENET_MEAN = (0.485, 0.456, 0.406)
+IMAGENET_STD = (0.229, 0.224, 0.225)
+
+
+def manifest_normalization(ws: Workspace) -> str:
+    if not ws.manifest.is_file():
+        return "unit"
+    manifest = tomllib.loads(ws.manifest.read_text(encoding="utf-8"))
+    return manifest.get("preprocessing", {}).get("normalization", "unit")
+
+
+def build_inputs(
+    shape: list[int],
+    samples: int,
+    seed: int,
+    input_npy: Path | None,
+    normalization: str = "unit",
+):
     import numpy as np
 
     if input_npy:
@@ -42,8 +59,17 @@ def build_inputs(shape: list[int], samples: int, seed: int, input_npy: Path | No
             )
         return arr
     rng = np.random.default_rng(seed)
-    # Uniform [0,1) exercises every weight path; preprocessing is excluded by construction.
-    return rng.random((samples, *shape[1:]), dtype=np.float32)
+    # Uniform pixels in [0,1) exercise every weight path; preprocessing is excluded by
+    # construction. They are mapped to the range the model sees after the manifest's normalisation,
+    # so a model fed 0-255 is not tested only on near-black images.
+    x = rng.random((samples, *shape[1:]), dtype=np.float32)
+    if normalization == "none":
+        x *= 255.0
+    elif normalization == "imagenet" and len(shape) == 4 and shape[1] == 3:
+        mean = np.array(IMAGENET_MEAN, np.float32).reshape(1, 3, 1, 1)
+        std = np.array(IMAGENET_STD, np.float32).reshape(1, 3, 1, 1)
+        x = (x - mean) / std
+    return x
 
 
 def run_onnx(path: Path, batch):
@@ -168,7 +194,8 @@ def emit_inputs(
 ) -> dict[str, Any]:
     import numpy as np
 
-    batch = build_inputs(_input_shape(ws.onnx), samples, seed, None)
+    norm = manifest_normalization(ws)
+    batch = build_inputs(_input_shape(ws.onnx), samples, seed, None, norm)
     out = Path(out)
     if out.suffix != ".npy":
         out = out.with_name(out.name + ".npy")  # np.save appends it anyway
@@ -177,7 +204,7 @@ def emit_inputs(
         "raw_inputs",
         "pass",
         {"inputs": str(out), "sha256": sha256_file(out), "seed": seed,
-         "shape": list(batch.shape)},
+         "shape": list(batch.shape), "normalization": norm},
     )
     return {
         "result": "pass",
@@ -231,7 +258,8 @@ def parity_raw(
             "--reference-outputs needs the --input-npy the outputs were computed on"
         )
 
-    batch = build_inputs(_input_shape(ws.onnx), samples, seed, input_npy)
+    norm = manifest_normalization(ws)
+    batch = build_inputs(_input_shape(ws.onnx), samples, seed, input_npy, norm)
     npy_seed, npy_sha, input_source = None, None, "seeded_uniform"
     if input_npy:
         npy_sha = sha256_file(Path(input_npy))
@@ -329,6 +357,7 @@ def parity_raw(
         "input_shape": list(batch.shape[1:]),
         "seed": npy_seed if input_npy else seed,
         "input_source": input_source,
+        "input_normalization": None if input_npy else norm,
         "input_sha256": npy_sha,
         "model_output_shape": list(ref.shape[1:]),
         "compared_shape": list(ref.shape),
@@ -661,6 +690,11 @@ def compare_classification(
         "near_tie": near_tie,
         "max_prob_delta": worst,
         "in_decision_band": prob_tol < worst <= prob_ceiling,
+        # enough to diagnose a delta without re-running both pipelines
+        "reference_top5": {k: round(v, 6) for k, v in rt[:5]},
+        "engine_top5": {
+            k: round(v, 6) for k, v in sorted(got.items(), key=lambda kv: -kv[1])[:5]
+        },
     }
     errors = []
     if top_r != top_g and not near_tie:

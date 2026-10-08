@@ -350,7 +350,10 @@ def scaffold(
         source=prov["source"],
         reference=prov["reference"],
         geo_desc=geo_scope + (f" ({', '.join(geo_regions)})" if geo_regions else ""),
-        input_desc=f"RGB image, {preprocess} to {w}x{h} (width x height), {normalization}",
+        input_desc=(
+            f"{channel_order.upper()} image, {preprocess} to {w}x{h} (width x height), "
+            f"normalization: {normalization}"
+        ),
         output_desc=out_desc,
         engine_version=caps.ENGINE_VERSION,
         submitter=prov.get("submitter") or "TODO",

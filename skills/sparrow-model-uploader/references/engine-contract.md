@@ -49,13 +49,21 @@ produces uint8, rounded to the nearest value. Normalisation is applied after tha
 | `--interpolation` | Matches |
 |---|---|
 | `bilinear`, `bicubic`, `lanczos` | PIL antialiased resampling, i.e. `torchvision.transforms.Resize` on a PIL image or `PIL.Image.resize` (bilinear to ~1e-3) |
-| `cv2_bilinear` | `cv2.resize(..., INTER_LINEAR)`: no antialiasing, rounded |
+| `cv2_bilinear` | `cv2.resize(..., INTER_LINEAR)` to within 1 grey level: the engine computes float bilinear (half-pixel centres, no antialiasing) and rounds, while OpenCV uses fixed-point weights |
 | `nearest` | `torch.nn.functional.interpolate(mode="nearest")` |
 
 The engine has no resize that works on a float tensor, such as `torchvision.transforms.v2.Resize`
 on a tensor or `F.interpolate(mode="bilinear", antialias=False)`, and no truncating
 requantisation. If upstream preprocesses that way, try the closest option above. If pipeline
 parity still fails while raw parity passes, that is an engine gap, not a conversion error.
+
+Measured on spe 0.1.30 (a flatten-only probe model, `spe embed`): on a PNG, `bicubic` and
+`cv2_bilinear` are within 1 grey level of PIL bicubic and OpenCV. On camera-trap JPEGs the
+engine's decoder differs from PIL's by about 0.1 grey level on average and up to 7 at a few
+pixels. Most models do not notice. A model that sits near a decision boundary on the parity images
+can move by a few hundredths in probability, more so on images unlike its training data (for
+example whole frames given to a classifier trained on crops). Check that the parity images match
+what the model was trained on before calling it an engine gap.
 
 For an exact integer upscale (e.g. x2), `bilinear` and `cv2_bilinear` use the same weights and give
 identical output; the difference shows only when downscaling. A torch float-tensor upscale still

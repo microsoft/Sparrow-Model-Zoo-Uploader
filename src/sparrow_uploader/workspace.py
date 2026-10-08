@@ -32,7 +32,11 @@ HISTORY_STAGES = ("parity_raw", "parity_pipeline")
 
 
 class UploaderError(Exception):
-    """A user-facing failure; the CLI prints the message and exits 1."""
+    """A user-facing usage or input error; the CLI prints the message and exits 2."""
+
+
+class GateFailed(UploaderError):
+    """A stage refused because an earlier gate has not passed; the CLI exits 1."""
 
 
 def now_iso() -> str:

@@ -183,7 +183,8 @@ sparrow-uploader smoke --model-id ID [--images DIR]
 ```
 
 Runs `spe` on the bundle. Pass: engine exits 0, outputs have the expected shape, scores in
-[0, 1]. A manifest error sends you back to S7; a graph error back to S4.
+[0, 1]. It runs on the first 8 images by default (`--limit N` to change); pipeline parity (S10)
+runs on all of them. A manifest error sends you back to S7; a graph error back to S4.
 
 ### S9 — Raw-tensor parity (conversion check)
 
@@ -219,6 +220,10 @@ that return nothing on noise, such as detectors with NMS in the graph. Failure m
 
 Compares the original model's **own inference code** with the engine on the same images. This
 catches preprocessing mismatches that S9 cannot see.
+
+For a second-stage classifier that upstream runs on detector crops, give it crops: cut the
+crops once (from the upstream detector's boxes), save them as image files, and use that folder
+as the parity images for both sides. Say in the card that the model expects crops.
 
 1. Run the upstream inference code on the parity images in a separate environment and write
    `reference_predictions.json` in the format in `references/parity-gates.md`.
@@ -327,6 +332,7 @@ is not an engine gap (rule 6).
 | Situation | Action |
 |---|---|
 | Weights licence unknown to the user | Ask them to find it; never guess one |
+| Licence stated only by a redistributor, not the original developer | Use it, say so in `SOURCE.md` and the card, and list it as an open question for the reviewer |
 | Audio model | Stop before downloading; this uploader version does not handle audio (the engine does) |
 | Video model | Stop before downloading; offer the engine-gap report |
 | Classifier delta in 0.01–0.05 (`needs_decision`) | Try interpolation options, then ask the user to investigate or accept |
