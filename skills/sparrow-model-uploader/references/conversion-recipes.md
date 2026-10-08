@@ -59,12 +59,22 @@ Install the extra: `uv tool install 'sparrow-model-uploader[ultralytics] @ git+h
 
 ```python
 from ultralytics import YOLO
-YOLO("best.pt").export(format="onnx", opset=18, imgsz=640, dynamic=True, simplify=True)
+YOLO("best.pt").export(format="onnx", opset=18, imgsz=640, simplify=True)
 ```
 
+- Do not pass `dynamic=True`: it makes height and width dynamic too, and `validate` rejects any
+  dynamic axis except the batch. To keep a dynamic batch, export static and then mark only
+  axis 0 dynamic: for each graph input and output,
+  `t.type.tensor_type.shape.dim[0].dim_param = "batch"`, then `onnx.save` and re-run `validate`.
+  Skip this for NMS exports (see below).
+- Record the Ultralytics version in `--framework` and the card: export and predict defaults
+  changed between 8.3 and 8.4.
+
 - YOLOv10 exports end-to-end output `[B, 300, 6]` (NMS-free) → postprocessing `yolo_e2e`.
-  Ultralytics 8.4.x exports YOLOv10 weights as a raw head instead; pin `ultralytics==8.3.0`
-  for the `[B, 300, 6]` export. That version also needs `onnxscript` installed.
+  On Ultralytics 8.4.x pass `nms=False` to both `export` and `predict`: the default `nms=None`
+  selects the one-to-many head, so the export is a raw head and the upstream reference silently
+  uses a different head (different scores). Alternatively pin `ultralytics==8.3.0`, which also
+  needs `onnxscript`. Check that the exported output is `[B, 300, 6]` before continuing.
 - Ultralytics `predict` treats a numpy array as BGR (a file path or PIL image as RGB). When you
   write the upstream reference script for pipeline parity, pass file paths, not arrays, or the
   reference uses swapped channels.
@@ -76,11 +86,13 @@ YOLO("best.pt").export(format="onnx", opset=18, imgsz=640, dynamic=True, simplif
   only the first image.
 - Ultralytics uses letterbox resize with `cv2` bilinear interpolation, RGB, values scaled to
   0–1: scaffold with `--preprocess letterbox --interpolation cv2_bilinear --normalization unit`.
-- Ultralytics `predict` pads only to a multiple of the stride ("rect" letterbox, e.g. 960x736
-  for a 4:3 photo at `imgsz=960`). The engine pads to the full fixed input size and has no rect
-  mode. If upstream's own images are mostly one aspect ratio, export at that rect shape
-  (`imgsz=[736, 960]`, height first) so the padding matches; a square export can fail pipeline
-  parity on box positions and confidences near the threshold. Record the chosen shape in the card.
+- Letterbox shape: check what upstream's inference actually does before choosing the export
+  shape. Ultralytics 8.4 `predict` pads to the full square by default (`rect=False`). Ultralytics
+  8.3 pads only to a stride multiple ("rect", e.g. 960x736 for a 4:3 photo at `imgsz=960`) for a
+  single image, but to the full square when a batch mixes image sizes, which is what batched
+  wrappers such as Pytorch-Wildlife do. The engine always pads to the fixed input size. Export
+  square unless upstream really runs rect on one aspect ratio; only then export at that rect
+  shape (`imgsz=[736, 960]`, height first). Record the chosen shape in the card.
 
 Raw parity:
 

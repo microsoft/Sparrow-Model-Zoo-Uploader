@@ -47,6 +47,12 @@ def _source_key(url: str) -> str:
     return "/".join([parts[0], parts[1], parts[2].removesuffix(".git")])
 
 
+def _ref_key(ref: str) -> str:
+    """A DOI found in a citation or URL, lower-cased; '' when there is none."""
+    hit = re.search(r"10\.\d{4,9}/[^\s\"'<>]+", ref or "")
+    return hit.group(0).rstrip(".,;)").lower() if hit else ""
+
+
 def load_catalog(path: Path | None) -> tuple[list[dict[str, Any]], str]:
     if path:
         text, src = Path(path).read_text(encoding="utf-8"), str(path)
@@ -285,16 +291,25 @@ def lint(
             a.lower() for e in entries for a in e.get("alias", [])
         }
         if ws.model_id.lower() in taken:
-            errors.append(
-                f"model id {ws.model_id!r} already exists in the published catalog; pick another id"
+            hit = next(
+                e["id"]
+                for e in entries
+                if ws.model_id.lower()
+                in {e["id"].lower(), *(a.lower() for a in e.get("alias", []))}
             )
+            errors.append(
+                f"model id {ws.model_id!r} collides with catalog entry {hit!r}. If it may be the "
+                "same model, run `parity pipeline --reference-bundle <hosted bundle> "
+                f"--reference-model-id {hit}` before choosing another id (skill S10)"
+            )
+        fam = {f.lower() for f in m.get("family", [])}
         overlap = [
             e["id"]
             for e in entries
             if e.get("domain") == m.get("domain")
             and e.get("task") == m.get("task")
             and (
-                set(e.get("family", [])) & set(m.get("family", []))
+                {f.lower() for f in e.get("family", [])} & fam
                 or (
                     m.get("geo_scope") == "regional"
                     and e.get("geo_scope") == "regional"
@@ -303,10 +318,12 @@ def lint(
             )
         ]
         own = _source_key(prov.get("source", ""))
+        own_ref = _ref_key(prov.get("reference", ""))
         same_source = [
             e["id"]
             for e in entries
-            if own and _source_key(e.get("original_source_url", "")) == own
+            if (own and _source_key(e.get("original_source_url", "")) == own)
+            or (own_ref and _ref_key(e.get("reference", "")) == own_ref)
         ]
         if same_source:
             warnings.append(

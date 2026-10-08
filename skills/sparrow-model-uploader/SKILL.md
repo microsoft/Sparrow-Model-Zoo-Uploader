@@ -94,8 +94,12 @@ sparrow-uploader init --model-id ID --task TASK --domain DOMAIN --license SPDX \
   --framework "pytorch 2.5 / ultralytics 8.3" --submitter HF_USER \
   --rights-holder WHO --license-url URL --display-name "Readable Name" \
   --source-revision REV --source-weights PATH_TO_ORIGINAL_WEIGHTS \
-  [--framework-licenses "AGPL-3.0"] [--restrictions "no_military"] [--parity-data DIR]
+  [--framework-licenses "AGPL-3.0"] [--restrictions "no_military"] [--parity-data DIR] \
+  [--ai4g-relationship first_party]
 ```
+
+`--ai4g-relationship` defaults to `third_party`. Use `first_party` only when Microsoft AI for Good
+developed the model (e.g. MegaDetector); the catalogue entry for the upstream says which.
 
 `--source` and `--license-url` must be http(s) URLs. `--source-weights` (repeatable) hashes
 the original weight files you downloaded, so the reviewer can match them to the source.
@@ -233,12 +237,15 @@ as the parity images for both sides. Say in the card that the model expects crop
 sparrow-uploader parity pipeline --model-id ID --reference reference_predictions.json
 ```
 
-If the model replaces one already served by the engine, compare against it instead:
-`--reference-bundle MODEL_DIR --reference-model-id OLD_ID`. If lint reports a zoo entry with the
+If the model replaces one already served by the engine, also compare against it:
+`--reference-bundle MODEL_DIR --reference-model-id OLD_ID`. That comparison is saved as
+`evidence/parity_zoo_compare.json` and does not replace the upstream comparison, which stays the
+parity gate. If lint reports a zoo entry with the
 same family or developer that is `link_only` (no bundle to compare with), ask the user whether
 this is a replacement, a new version or a separate model, and record the answer in the model card.
 
-If lint warns that a zoo model comes from the same upstream repository, download that hosted bundle
+If lint warns that a zoo model comes from the same upstream repository or cites the same DOI, or
+an id collides with an existing entry, download that hosted bundle
 and run the `--reference-bundle` comparison. If the predictions match, the weights are already in
 the zoo: tell the user and do not submit a duplicate unless they confirm it adds something (state
 what in the card).

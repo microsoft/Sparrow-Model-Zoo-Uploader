@@ -655,8 +655,11 @@ def parity_pipeline(
         "decision": decision,
         "per_file": per_file,
     }
-    ws.write_evidence("parity_pipeline", result, data)
-    out = {"result": result, "summary": summary, "errors": errors[:20]}
+    # A comparison against a hosted zoo bundle is a duplicate check, not the parity gate:
+    # keep it apart so it never replaces the upstream comparison.
+    stage = "parity_zoo_compare" if reference_bundle else "parity_pipeline"
+    ws.write_evidence(stage, result, data)
+    out = {"result": result, "evidence": stage, "summary": summary, "errors": errors[:20]}
     if band:
         out["decision_band_files"] = band
         out["decision"] = decision

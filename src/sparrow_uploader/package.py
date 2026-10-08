@@ -37,6 +37,7 @@ EVIDENCE_FILES = (
     "parity_pipeline",
     "parity_raw_history",
     "parity_pipeline_history",
+    "parity_zoo_compare",
     "lint",
 )
 MAX_UNCOMPRESSED = 8 * 1024**3
@@ -99,7 +100,7 @@ def draft_catalog_row(manifest: dict[str, Any], prov: dict[str, Any]) -> dict[st
         "geo_scope": m.get("geo_scope"),
         "geo_regions": m.get("geo_regions", []),
         "developer": prov.get("developer"),
-        "ai4g_relationship": "third_party",
+        "ai4g_relationship": prov.get("ai4g_relationship", "third_party"),
         **rights_fields(prov),
         "reference": m.get("reference"),
         "description": m.get("description"),

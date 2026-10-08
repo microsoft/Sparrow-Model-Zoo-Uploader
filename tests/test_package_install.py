@@ -270,3 +270,49 @@ def test_seeded_inputs_follow_manifest_normalization(run, initialised, tmp_path)
     assert rc == 0, out
     x = np.load(tmp_path / "in.npy")
     assert x.max() > 200 and x.min() >= 0
+
+
+def _catalog(tmp_path, **entry):
+    row = {"id": "Other-Model", "domain": "general", "task": "classifier", **entry}
+    body = "[[model]]\n" + "".join(f"{k} = {json.dumps(v)}\n" for k, v in row.items())
+    (tmp_path / "catalog.toml").write_text(body)
+    return str(tmp_path / "catalog.toml")
+
+
+def test_lint_family_overlap_ignores_case(run, initialised, tmp_path):
+    mid, ws = _bundle(run, initialised, tmp_path)
+    rc, out = run(
+        "scaffold", "--model-id", mid, "--preprocess", "resize", "--normalization", "imagenet",
+        "--license-file", str(tmp_path / "LICENSE.txt"), "--labels", str(tmp_path / "labels.txt"),
+        "--family", "megadetector", "--force",
+    )
+    assert rc == 0, out
+    _, out = run("lint", "--model-id", mid, "--catalog", _catalog(tmp_path, family=["MegaDetector"]))
+    assert any("same family" in w and "Other-Model" in w for w in out["warnings"]), out
+
+
+def test_lint_same_doi_reference_flags_duplicate(run, initialised, tmp_path):
+    mid, ws = _bundle(
+        run, initialised, tmp_path, init_extra=("--reference", "https://doi.org/10.5281/zenodo.123")
+    )
+    cat = _catalog(tmp_path, reference="Smith (2024). doi:10.5281/zenodo.123.")
+    _, out = run("lint", "--model-id", mid, "--catalog", cat)
+    assert any("Other-Model" in w and "duplicate" in w for w in out["warnings"]), out
+
+
+def test_lint_id_collision_names_entry_and_duplicate_check(run, initialised, tmp_path):
+    mid, ws = _bundle(run, initialised, tmp_path)
+    _, out = run("lint", "--model-id", mid, "--catalog", _catalog(tmp_path, id=mid.upper()))
+    hit = [e for e in out["errors"] if "collides" in e]
+    assert hit and mid.upper() in hit[0] and "--reference-bundle" in hit[0], out
+
+
+def test_ai4g_relationship_flag_reaches_catalog_row(run, initialised, tmp_path):
+    mid, ws = _bundle(
+        run, initialised, tmp_path, init_extra=("--ai4g-relationship", "first_party")
+    )
+    z = _package(run, mid, tmp_path)
+    with zipfile.ZipFile(z) as zf:
+        row = json.loads(zf.read("submission.json"))["catalog_row_draft"]
+    assert row["ai4g_relationship"] == "first_party"
+    assert 'ai4g_relationship = "first_party"' in ws.manifest.read_text()

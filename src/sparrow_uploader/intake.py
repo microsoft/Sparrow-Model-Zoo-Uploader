@@ -63,8 +63,13 @@ def init(
     display_name: str = "",
     framework_licenses: list[str] | None = None,
     restrictions: list[str] | None = None,
+    ai4g_relationship: str = "third_party",
     force: bool = False,
 ) -> dict[str, Any]:
+    if ai4g_relationship not in caps.AI4G_RELATIONSHIPS:
+        raise UploaderError(
+            f"ai4g_relationship must be one of {list(caps.AI4G_RELATIONSHIPS)}"
+        )
     if task not in caps.TASK_TO_MODEL_TYPE:
         raise UploaderError(
             f"task must be one of {sorted(caps.TASK_TO_MODEL_TYPE)}; got {task!r}"
@@ -156,7 +161,7 @@ def init(
         "description": description,
         "framework": framework,
         "submitter": submitter,
-        "ai4g_relationship": "third_party",
+        "ai4g_relationship": ai4g_relationship,
         "rights_holder": rights_holder or developer,
         "license_source_url": license_url,
         "source_revision": source_revision,

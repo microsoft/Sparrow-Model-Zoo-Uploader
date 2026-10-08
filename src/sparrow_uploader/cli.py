@@ -50,6 +50,7 @@ def cmd_init(a):
         display_name=a.display_name,
         framework_licenses=_csv(a.framework_licenses),
         restrictions=_csv(a.restrictions),
+        ai4g_relationship=a.ai4g_relationship,
         force=a.force,
     )
 
@@ -249,6 +250,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--parity-data", type=Path, help="folder of your own images for pipeline parity"
     )
     sp.add_argument("--submitter", default="", help="your Hugging Face username")
+    sp.add_argument(
+        "--ai4g-relationship",
+        default="third_party",
+        choices=["first_party", "third_party", "unverified"],
+        help="first_party only for models developed by Microsoft AI for Good",
+    )
     sp.add_argument(
         "--license-url",
         default="",
