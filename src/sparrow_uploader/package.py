@@ -61,7 +61,7 @@ MAX_METADATA = 1024**2
 TEXT_SUFFIXES = (".json", ".md", ".txt", ".toml", ".sha256")
 # Evidence that must not have failed, nor been rewritten after lint.json, when packaging.
 GATED_EVIDENCE = ("smoke", "parity_raw", "parity_pipeline")
-_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 
 
 def _redactions(ws: Workspace) -> list[tuple[re.Pattern[str], str]]:

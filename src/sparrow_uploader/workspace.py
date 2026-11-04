@@ -26,7 +26,7 @@ from typing import Any
 
 from . import __version__
 
-MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$")
+MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,63}\Z")
 EVIDENCE_SCHEMA = "1.0"
 # Re-running these gates keeps the earlier records, so a failing run cannot silently disappear.
 HISTORY_STAGES = ("parity_raw", "parity_pipeline")
