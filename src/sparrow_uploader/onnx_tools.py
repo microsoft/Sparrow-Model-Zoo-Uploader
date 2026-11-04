@@ -24,6 +24,41 @@ def _dims(value_info) -> list[Any]:
     return out
 
 
+def _external_tensors(model) -> list[str]:
+    """Tensors stored outside the file: initializers, tensor attributes (Constant), subgraphs
+    (If/Loop/Scan) and local functions. Top-level initializers keep their bare name."""
+    from onnx import TensorProto
+
+    out: list[str] = []
+
+    def tensor(t, where: str | None) -> None:
+        if t.data_location == TensorProto.EXTERNAL:
+            out.append(f"{where}:{t.name or '?'}" if where else t.name)
+
+    def nodes(ns, prefix: str) -> None:
+        for node in ns:
+            for a in node.attribute:
+                where = f"{prefix}{node.op_type}.{a.name}"
+                if a.HasField("t"):
+                    tensor(a.t, where)
+                for t in a.tensors:
+                    tensor(t, where)
+                if a.HasField("g"):
+                    graph(a.g, f"{where}/")
+                for sub in a.graphs:
+                    graph(sub, f"{where}/")
+
+    def graph(g, prefix: str) -> None:
+        for t in g.initializer:
+            tensor(t, f"{prefix}initializer" if prefix else None)
+        nodes(g.node, prefix)
+
+    graph(model.graph, "")
+    for fn in model.functions:
+        nodes(fn.node, f"{fn.name}/")
+    return out
+
+
 def inspect_graph(path: Path) -> dict[str, Any]:
     """Return a JSON-able description of the graph without loading external data."""
     import onnx
@@ -41,9 +76,7 @@ def inspect_graph(path: Path) -> dict[str, Any]:
             "shape": _dims(vi),
         }
 
-    external = [
-        t.name for t in graph.initializer if t.data_location == TensorProto.EXTERNAL
-    ]
+    external = _external_tensors(model)
     op_counts: dict[str, int] = {}
     domains: set[str] = set()
     for node in graph.node:
@@ -85,7 +118,7 @@ def validate(ws: Workspace, onnx_path: Path) -> dict[str, Any]:
 
     if info["external_data_initializers"]:
         errors.append(
-            f"{len(info['external_data_initializers'])} initializers use external data; "
+            f"{len(info['external_data_initializers'])} tensors use external data; "
             "the engine loads a single self-contained model.onnx. Re-export with "
             "`onnx.save(model, path, save_as_external_data=False)` (requires < 2 GB)."
         )
