@@ -100,12 +100,19 @@ def _classifications(_f):
 
 def _make_lint_pass(run, ws, mid, tmp_path, monkeypatch):
     """Evidence an offline lint needs to pass without spe: smoke, raw parity (pass), pipeline
-    parity (skipped), a card without placeholders, and `spe models list` faked."""
+    parity (pass on faked spe; a skipped one is a lint error under D6), a card without
+    placeholders, and `spe models list` faked."""
     ws.write_evidence("smoke", "pass", {"errors": [], "note": "spe faked"})
     same = make_classifier(tmp_path / "src_same.onnx")
     rc, out = run("parity", "raw", "--model-id", mid, "--source-onnx", str(same), "--samples", "4")
     assert rc == 0 and out["result"] == "pass", out
-    run("parity", "pipeline", "--model-id", mid)
+    _fake_spe(monkeypatch, P, _classifications)
+    (tmp_path / "lint_pass_imgs").mkdir(exist_ok=True)
+    upstream = tmp_path / "lint_pass_upstream.json"
+    upstream.write_text(json.dumps({"a.jpg": PROBS, "b.jpg": PROBS}))
+    rc, out = run("parity", "pipeline", "--model-id", mid, "--images",
+                  str(_parity_images(tmp_path / "lint_pass_imgs")), "--reference", str(upstream))
+    assert rc == 0 and out["result"] == "pass", out
     card = ws.bundle / "MODEL_CARD.md"
     card.write_text(
         "\n".join(ln for ln in card.read_text().splitlines() if not _TODO.search(ln)) + "\n"

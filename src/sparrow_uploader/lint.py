@@ -156,8 +156,10 @@ def evidence_issue(stage: str, ev: dict | None) -> tuple[str | None, str]:
         )
     if res == "skipped":
         if stage == "parity_pipeline":
-            return "warning", (
-                "pipeline parity skipped (no submitter images); the reviewer will run it on own data"
+            # D6: the reviewer does not run parity, so a submission without it is sent back.
+            return "error", (
+                "pipeline parity was skipped; run `sparrow-uploader parity pipeline --images <dir>` "
+                "on a few of your own images (the reviewer does not run parity for you)"
             )
         return "error", f"evidence/{stage}.json result is skipped"
     return None, ""

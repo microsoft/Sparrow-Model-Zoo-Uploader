@@ -146,8 +146,9 @@ vocabulary where it fits: `attribution`, `sharealike`, `copyleft`, `source_offer
 `non_commercial`, `no_derivatives`; other values (e.g. `no_military`) are kept as written and
 read by the reviewer.
 
-If the user has no images, run `init` without `--parity-data`. The submission is then marked
-as lower confidence. Ask again before packaging (S12).
+If the user has no images yet, run `init` without `--parity-data`, but they must supply some
+before packaging: lint fails on a skipped pipeline parity, because the reviewer does not run
+parity and would send the submission back. Ask again before S12.
 
 ### S3 — Inspect the upstream model
 
@@ -313,7 +314,7 @@ can accept. If they do, re-run with `--accept-delta "<their reason>"`; the reaso
 the model card. Never accept on the user's behalf. In an unattended run, write the question to
 `QUESTIONS.md` and leave the result at `needs_decision`. Above 0.05 the gate fails.
 
-With no user images this stage records `skipped`.
+With no user images this stage records `skipped`, and S11 lint then fails until it is run.
 
 ### S11 — Quality lint
 
@@ -354,8 +355,8 @@ capped at 1 MiB) and reports a malformed zip as `"result": "fail"`.
 ### S13 — Hand-off
 
 Show the user: zip path and size, the results table from the evidence (smoke, raw parity numbers,
-pipeline parity numbers or `skipped`, lint warnings), and anything they should know (lower
-confidence without real images, overlap warnings).
+pipeline parity numbers, lint warnings), and anything they should know (accepted deltas,
+overlap warnings).
 
 ### S14 — Submit (only when the user asks)
 

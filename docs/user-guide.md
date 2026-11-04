@@ -50,8 +50,9 @@ traps, include images with and without animals. These images:
 - are used to compare the original model's own inference code with the engine;
 - **stay on your machine**. Only file hashes and predictions go into the package.
 
-Without images, the pipeline check is recorded as `skipped` and the submission is marked lower
-confidence.
+Without images, the pipeline check is recorded as `skipped` and `lint` fails: the reviewer does
+not run parity for you and would send the submission back. Run
+`sparrow-uploader parity pipeline --images <dir>` on a few of your own images before packaging.
 
 ## 2. During conversion
 

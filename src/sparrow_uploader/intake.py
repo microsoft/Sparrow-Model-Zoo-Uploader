@@ -154,7 +154,8 @@ def init(
     else:
         parity = {"mode": "synthetic"}
         warnings.append(
-            "no parity data supplied: pipeline parity cannot run and the submission will be marked lower confidence"
+            "no parity data supplied: lint will fail until you run `parity pipeline --images <dir>` "
+            "on a few of your own images (the reviewer does not run parity)"
         )
 
     if ws.provenance.exists() and not force:
